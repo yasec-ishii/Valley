@@ -1,0 +1,1207 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>バレー分析ツール</title>
+<style>
+:root {
+  --primary:#1a3a6b; --primary-light:#2a5298; --accent:#f97316;
+  --success:#16a34a; --danger:#dc2626; --warning:#d97706;
+  --bg:#f1f5f9; --card:#ffffff; --text:#1e293b; --text-light:#64748b;
+  --border:#e2e8f0; --radius:12px;
+}
+* { box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:rgba(0,0,0,0.04); }
+body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Hiragino Kaku Gothic ProN','Noto Sans JP',sans-serif; background:var(--bg); color:var(--text); min-height:100vh; padding-bottom:calc(72px + env(safe-area-inset-bottom)); }
+
+/* タッチ最適化 */
+button, a, .sel-btn, .action-btn, .player-sel-btn, .nav-btn, .score-btn, .sub-tab, .match-item, .log-del, .log-edit {
+  touch-action:manipulation; cursor:pointer; -webkit-user-select:none; user-select:none;
+}
+
+/* HEADER */
+.header { background:var(--primary); color:#fff; padding:14px 16px; display:flex; align-items:center; justify-content:space-between; position:sticky; top:0; z-index:200; box-shadow:0 2px 8px rgba(0,0,0,.25); }
+.header h1 { font-size:1.1rem; font-weight:700; }
+.header-sub { font-size:.75rem; opacity:.8; }
+
+/* NAV */
+.nav { position:fixed; bottom:0; left:0; right:0; background:#fff; display:flex; border-top:1.5px solid var(--border); z-index:200; box-shadow:0 -2px 8px rgba(0,0,0,.08); padding-bottom:env(safe-area-inset-bottom); }
+.nav-btn { flex:1; padding:8px 4px 10px; display:flex; flex-direction:column; align-items:center; gap:3px; background:none; border:none; color:var(--text-light); font-size:.65rem; font-weight:600; }
+.nav-btn .nav-icon { font-size:1.4rem; line-height:1; }
+.nav-btn.active { color:var(--primary); }
+.nav-btn.active .nav-icon { transform:scale(1.1); }
+
+/* PAGES */
+.page { display:none; padding:16px; animation:fadeIn .18s ease; }
+.page.active { display:block; }
+@keyframes fadeIn { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
+
+/* CARDS */
+.card { background:var(--card); border-radius:var(--radius); padding:16px; margin-bottom:14px; box-shadow:0 1px 4px rgba(0,0,0,.08); }
+.card-title { font-size:.85rem; font-weight:700; color:var(--text-light); text-transform:uppercase; letter-spacing:.06em; margin-bottom:10px; }
+
+/* BUTTONS */
+.btn { display:inline-flex; align-items:center; justify-content:center; gap:6px; padding:10px 18px; border-radius:8px; border:none; font-size:.9rem; font-weight:600; transition:all .15s; white-space:nowrap; }
+.btn-primary { background:var(--primary); color:#fff; }
+.btn-accent   { background:var(--accent); color:#fff; }
+.btn-success  { background:var(--success); color:#fff; }
+.btn-danger   { background:var(--danger); color:#fff; }
+.btn-outline  { background:transparent; color:var(--primary); border:2px solid var(--primary); }
+.btn-sm  { padding:6px 12px; font-size:.78rem; border-radius:6px; }
+.btn-block { display:flex; width:100%; }
+.btn:active { transform:scale(.97); }
+.btn:disabled { opacity:.5; }
+
+/* ACTION BUTTONS */
+.action-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:14px; }
+.action-btn { padding:16px 8px; border-radius:10px; border:none; font-size:.9rem; font-weight:700; display:flex; flex-direction:column; align-items:center; gap:6px; color:#fff; }
+.action-btn .action-icon { font-size:1.6rem; }
+.action-btn:active { transform:scale(.95); }
+.ab-spike   { background:linear-gradient(135deg,#e11d48,#be185d); }
+.ab-serve   { background:linear-gradient(135deg,#0284c7,#0369a1); }
+.ab-receive { background:linear-gradient(135deg,#16a34a,#15803d); }
+.ab-block   { background:linear-gradient(135deg,#7c3aed,#6d28d9); }
+.ab-loss    { background:linear-gradient(135deg,#dc2626,#b91c1c); }
+.ab-other   { background:linear-gradient(135deg,#64748b,#475569); }
+
+/* SCOREBOARD */
+.scoreboard { background:var(--primary); color:#fff; border-radius:var(--radius); padding:16px; margin-bottom:14px; }
+.score-teams { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.score-team { flex:1; text-align:center; }
+.score-name { font-size:.8rem; opacity:.8; margin-bottom:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.score-number { font-size:3rem; font-weight:800; line-height:1; }
+.score-vs { font-size:1rem; opacity:.6; font-weight:700; }
+.score-btns { display:flex; gap:8px; margin-top:6px; }
+.score-btn { flex:1; background:rgba(255,255,255,.15); border:1px solid rgba(255,255,255,.3); color:#fff; border-radius:6px; padding:8px; font-size:1.05rem; font-weight:700; }
+.score-btn:active { background:rgba(255,255,255,.3); }
+.set-info { text-align:center; font-size:.75rem; opacity:.7; margin-top:8px; }
+
+/* LOG */
+.log-list { max-height:220px; overflow-y:auto; }
+.log-item { display:flex; align-items:center; gap:8px; padding:8px 0; border-bottom:1px solid var(--border); font-size:.82rem; }
+.log-item:last-child { border-bottom:none; }
+.log-badge { padding:3px 8px; border-radius:20px; font-size:.7rem; font-weight:700; color:#fff; white-space:nowrap; }
+.badge-spike{background:#e11d48} .badge-serve{background:#0284c7} .badge-receive{background:#16a34a}
+.badge-block{background:#7c3aed} .badge-loss{background:#dc2626}  .badge-other{background:#64748b}
+.log-detail { flex:1; color:var(--text); }
+.log-time { color:var(--text-light); font-size:.72rem; white-space:nowrap; }
+.log-del  { background:none; border:none; color:var(--text-light); font-size:1rem; padding:4px 5px; }
+.log-edit { background:none; border:none; color:var(--primary); font-size:1rem; padding:4px 5px; }
+
+/* MODAL */
+.modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:500; align-items:flex-end; justify-content:center; }
+.modal-overlay.open { display:flex; }
+.modal { background:#fff; border-radius:20px 20px 0 0; width:100%; max-width:640px; max-height:88vh; overflow-y:scroll; overscroll-behavior:contain; padding:20px 16px calc(28px + env(safe-area-inset-bottom)); animation:slideUp .22s ease; }
+@keyframes slideUp { from{transform:translateY(100%)} to{transform:translateY(0)} }
+.modal-handle { width:40px; height:4px; background:#cbd5e1; border-radius:2px; margin:0 auto 16px; }
+.modal-title { font-size:1.1rem; font-weight:800; margin-bottom:14px; color:var(--primary); }
+.modal-step { font-size:.8rem; color:var(--text-light); margin-bottom:10px; }
+
+/* SELECTION */
+.sel-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(100px,1fr)); gap:8px; margin-bottom:14px; }
+.sel-grid-2 { grid-template-columns:repeat(2,1fr); }
+.sel-grid-3 { grid-template-columns:repeat(3,1fr); }
+.sel-btn { padding:13px 8px; border-radius:8px; border:2px solid var(--border); background:#f8fafc; font-size:.85rem; font-weight:600; text-align:center; transition:all .15s; }
+.sel-btn:active { transform:scale(.96); }
+.sel-btn.selected         { border-color:var(--primary); background:var(--primary); color:#fff; }
+.sel-btn.danger-sel.selected  { border-color:var(--danger); background:var(--danger); color:#fff; }
+.sel-btn.success-sel.selected { border-color:var(--success); background:var(--success); color:#fff; }
+.player-sel-btn { padding:10px; border-radius:8px; border:2px solid var(--border); background:#f8fafc; text-align:center; transition:all .15s; }
+.player-sel-btn:active { transform:scale(.96); }
+.player-sel-btn .psb-num { font-size:1.2rem; font-weight:800; color:var(--primary); }
+.player-sel-btn .psb-name { font-size:.75rem; color:var(--text-light); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.player-sel-btn.selected { border-color:var(--primary); background:var(--primary); }
+.player-sel-btn.selected .psb-num, .player-sel-btn.selected .psb-name { color:#fff; }
+
+/* FORMS */
+.form-group { margin-bottom:14px; }
+.form-label { display:block; font-size:.82rem; font-weight:600; color:var(--text-light); margin-bottom:6px; }
+.form-input { width:100%; padding:10px 12px; border:2px solid var(--border); border-radius:8px; font-size:.95rem; font-family:inherit; }
+.form-input:focus { outline:none; border-color:var(--primary); }
+.form-row { display:flex; gap:10px; }
+.form-row .form-group { flex:1; }
+
+/* STATS */
+.stats-table { width:100%; border-collapse:collapse; font-size:.82rem; }
+.stats-table th { background:var(--primary); color:#fff; padding:8px 6px; text-align:center; font-weight:700; font-size:.75rem; white-space:nowrap; }
+.stats-table td { padding:8px 6px; text-align:center; border-bottom:1px solid var(--border); }
+.stats-table tr:last-child td { border-bottom:none; }
+.stats-table td.player-name { text-align:left; font-weight:600; }
+.val-good { color:var(--success); font-weight:700; }
+.val-bad  { color:var(--danger);  font-weight:700; }
+.val-warn { color:var(--warning); font-weight:700; }
+.table-wrap { overflow-x:auto; }
+
+/* CHARTS */
+.bar-chart { margin:6px 0; }
+.bar-row { display:flex; align-items:center; gap:8px; margin-bottom:8px; font-size:.82rem; }
+.bar-label { width:100px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.bar-track { flex:1; height:18px; background:#f1f5f9; border-radius:4px; overflow:hidden; }
+.bar-fill  { height:100%; border-radius:4px; }
+.bar-val   { width:50px; text-align:right; font-weight:700; }
+.pie-wrap { display:flex; align-items:center; gap:16px; flex-wrap:wrap; }
+.pie-legend { font-size:.8rem; }
+.pie-legend-item { display:flex; align-items:center; gap:6px; margin-bottom:5px; }
+.pie-dot { width:12px; height:12px; border-radius:50%; flex-shrink:0; }
+
+/* COURT */
+.court-wrap { display:flex; justify-content:center; margin:10px 0; }
+.court { position:relative; width:180px; height:120px; background:#dbeafe; border:2px solid #3b82f6; border-radius:4px; }
+.court-zone { position:absolute; width:33.33%; height:50%; display:flex; align-items:center; justify-content:center; font-size:.7rem; font-weight:700; color:#1d4ed8; border:1px solid rgba(59,130,246,.3); border-radius:2px; }
+.court-net { position:absolute; left:-2px; right:-2px; top:50%; height:3px; background:#1d4ed8; }
+
+/* RALLY */
+.rally-flow { display:flex; flex-direction:column; gap:4px; }
+.rally-step { display:flex; align-items:center; gap:8px; padding:6px 10px; background:#f8fafc; border-radius:6px; border-left:4px solid var(--border); font-size:.82rem; }
+.rally-step.win  { border-left-color:var(--success); }
+.rally-step.loss { border-left-color:var(--danger); }
+.rally-rec-steps { background:#f8fafc; border-radius:8px; padding:10px; min-height:54px; margin-bottom:12px; max-height:130px; overflow-y:auto; }
+.rally-entry { display:flex; justify-content:space-between; align-items:center; padding:4px 0; border-bottom:1px solid var(--border); font-size:.8rem; }
+.rally-del-btn { background:none; border:none; color:var(--danger); font-size:.9rem; padding:2px 6px; }
+
+/* MISC */
+.player-item { display:flex; align-items:center; gap:12px; padding:12px; border-radius:10px; border:2px solid var(--border); margin-bottom:8px; background:#fff; }
+.player-num  { width:40px; height:40px; border-radius:50%; background:var(--primary); color:#fff; display:flex; align-items:center; justify-content:center; font-size:1.1rem; font-weight:800; flex-shrink:0; }
+.player-info .pname { font-weight:700; font-size:.95rem; }
+.player-info .ppos  { font-size:.75rem; color:var(--text-light); }
+.player-info { flex:1; }
+.match-item { padding:12px; border-radius:10px; border:2px solid var(--border); margin-bottom:8px; background:#fff; }
+.match-item.active-match { border-color:var(--accent); background:#fff7ed; }
+.match-item .mdate { font-size:.75rem; color:var(--text-light); }
+.match-item .mopp  { font-weight:700; font-size:.95rem; }
+.match-item .mscore { font-size:.82rem; color:var(--primary); font-weight:600; }
+.sub-tabs { display:flex; gap:6px; overflow-x:auto; padding-bottom:2px; margin-bottom:14px; scrollbar-width:none; }
+.sub-tabs::-webkit-scrollbar { display:none; }
+.sub-tab { padding:7px 14px; border-radius:20px; border:2px solid var(--border); background:#fff; font-size:.78rem; font-weight:700; white-space:nowrap; color:var(--text-light); }
+.sub-tab.active { background:var(--primary); color:#fff; border-color:var(--primary); }
+.empty-state { text-align:center; padding:40px 20px; color:var(--text-light); }
+.empty-state .empty-icon { font-size:3rem; margin-bottom:12px; }
+.section-title { font-size:1.05rem; font-weight:800; color:var(--text); margin-bottom:12px; display:flex; align-items:center; gap:6px; }
+.badge-count { background:var(--accent); color:#fff; border-radius:20px; padding:1px 8px; font-size:.75rem; font-weight:700; }
+.divider { height:1px; background:var(--border); margin:14px 0; }
+.toast { position:fixed; bottom:90px; left:50%; transform:translateX(-50%); background:#1e293b; color:#fff; padding:10px 20px; border-radius:20px; font-size:.85rem; font-weight:600; z-index:999; opacity:0; transition:opacity .3s; pointer-events:none; white-space:nowrap; }
+.toast.show { opacity:1; }
+.two-col { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:10px; }
+.kpi-card { background:#fff; border-radius:10px; padding:14px; text-align:center; box-shadow:0 1px 4px rgba(0,0,0,.07); }
+.kpi-val   { font-size:2rem; font-weight:800; color:var(--primary); line-height:1; }
+.kpi-label { font-size:.72rem; color:var(--text-light); margin-top:4px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <div id="headerTitle" style="font-size:1.1rem;font-weight:700;">🏐 バレー分析ツール</div>
+    <div class="header-sub" id="headerSub">試合を選択してください</div>
+  </div>
+  <button class="btn btn-sm" style="background:rgba(255,255,255,.2);color:#fff;border:1px solid rgba(255,255,255,.4);" onclick="showPage('matches')">試合切替</button>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- 記録 -->
+<div class="page active" id="page-record">
+  <div id="scoreboardWrap"></div>
+  <div class="card">
+    <div class="card-title">プレー記録</div>
+    <div class="action-grid">
+      <button class="action-btn ab-spike"   onclick="openModal('spike')"><span class="action-icon">⚡</span>スパイク</button>
+      <button class="action-btn ab-serve"   onclick="openModal('serve')"><span class="action-icon">🏐</span>サーブ</button>
+      <button class="action-btn ab-receive" onclick="openModal('receive')"><span class="action-icon">🙌</span>レシーブ</button>
+      <button class="action-btn ab-block"   onclick="openModal('block')"><span class="action-icon">🛡️</span>ブロック</button>
+      <button class="action-btn ab-loss"    onclick="openModal('loss')"><span class="action-icon">❌</span>失点</button>
+      <button class="action-btn ab-other"   onclick="openModal('rally')"><span class="action-icon">🔄</span>ラリー</button>
+    </div>
+    <div style="display:flex;gap:8px;">
+      <button class="btn btn-outline btn-sm" style="flex:1" onclick="openModal('newscore')">📊 スコア修正</button>
+      <button class="btn btn-sm" style="flex:1;background:#fff7ed;color:#ea580c;border:2px solid #fed7aa;" onclick="endSet()">セット終了</button>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title">最近の記録</div>
+    <div class="log-list" id="logList">
+      <div class="empty-state" style="padding:20px;"><p>まだ記録がありません</p></div>
+    </div>
+  </div>
+</div>
+
+<!-- 分析 -->
+<div class="page" id="page-analysis">
+  <div class="sub-tabs" id="analysisTabs">
+    <button class="sub-tab active" onclick="showAnalysis('individual')">👤 個人成績</button>
+    <button class="sub-tab" onclick="showAnalysis('team')">🏆 チーム</button>
+    <button class="sub-tab" onclick="showAnalysis('course')">🎯 コース</button>
+    <button class="sub-tab" onclick="showAnalysis('loss')">❌ 失点</button>
+    <button class="sub-tab" onclick="showAnalysis('rally')">🔄 ラリー</button>
+  </div>
+  <div id="analysisContent"></div>
+</div>
+
+<!-- 選手管理 -->
+<div class="page" id="page-players">
+  <div class="section-title">👥 選手管理</div>
+  <div class="card">
+    <div class="card-title">新しい選手を追加</div>
+    <div class="form-row">
+      <div class="form-group" style="flex:0 0 74px;">
+        <label class="form-label">背番号</label>
+        <input class="form-input" type="number" id="newPlayerNum" placeholder="1" min="1" max="99">
+      </div>
+      <div class="form-group">
+        <label class="form-label">名前</label>
+        <input class="form-input" type="text" id="newPlayerName" placeholder="山田 花子">
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">ポジション</label>
+      <div class="sel-grid sel-grid-3" id="posGrid">
+        <button class="sel-btn" onclick="selectPos(this,'レフト')">レフト</button>
+        <button class="sel-btn" onclick="selectPos(this,'レフトセミ')">レフトセミ</button>
+        <button class="sel-btn" onclick="selectPos(this,'セッター')">セッター</button>
+        <button class="sel-btn" onclick="selectPos(this,'ライトセミ')">ライトセミ</button>
+        <button class="sel-btn" onclick="selectPos(this,'ライト')">ライト</button>
+        <button class="sel-btn" onclick="selectPos(this,'ハーフセン')">ハーフセン</button>
+        <button class="sel-btn" onclick="selectPos(this,'バックレフト')">バックレフト</button>
+        <button class="sel-btn" onclick="selectPos(this,'バックセンター')">バックセンター</button>
+        <button class="sel-btn" onclick="selectPos(this,'バックライト')">バックライト</button>
+      </div>
+    </div>
+    <button class="btn btn-primary btn-block" onclick="addPlayer()">✚ 選手を追加</button>
+  </div>
+  <div class="section-title">登録選手 <span class="badge-count" id="playerCountBadge">0</span></div>
+  <div id="playerList"></div>
+</div>
+
+<!-- 試合管理 -->
+<div class="page" id="page-matches">
+  <div class="section-title">📋 試合管理</div>
+  <div class="card">
+    <div class="card-title">新しい試合を作成</div>
+    <div class="form-group">
+      <label class="form-label">相手チーム名</label>
+      <input class="form-input" type="text" id="newMatchOpp" placeholder="○○チーム">
+    </div>
+    <div class="form-group">
+      <label class="form-label">試合日</label>
+      <input class="form-input" type="date" id="newMatchDate">
+    </div>
+    <button class="btn btn-primary btn-block" onclick="createMatch()">🆕 試合を作成</button>
+  </div>
+  <div class="section-title">試合一覧</div>
+  <div id="matchList"></div>
+</div>
+
+<!-- MODAL -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal" id="modal">
+    <div class="modal-handle"></div>
+    <div id="modalContent"></div>
+  </div>
+</div>
+
+<nav class="nav">
+  <button class="nav-btn active" onclick="showPage('record')"   id="nav-record">   <span class="nav-icon">⚡</span>記録</button>
+  <button class="nav-btn"        onclick="showPage('analysis')" id="nav-analysis">  <span class="nav-icon">📊</span>分析</button>
+  <button class="nav-btn"        onclick="showPage('players')"  id="nav-players">   <span class="nav-icon">👥</span>選手</button>
+  <button class="nav-btn"        onclick="showPage('matches')"  id="nav-matches">   <span class="nav-icon">📋</span>試合</button>
+</nav>
+
+<script>
+// =================================================
+//  DB
+// =================================================
+const STORAGE_KEY = 'vb_analysis_v3';
+let db = { players:[], matches:[], currentMatchId:null, currentSetNumber:1 };
+
+function loadDB() {
+  try { const r=localStorage.getItem(STORAGE_KEY); if(r) db=JSON.parse(r); } catch(e){}
+  if(!db.players) db.players=[];
+  if(!db.matches) db.matches=[];
+  if(!db.currentMatchId) db.currentMatchId=null;
+  if(!db.currentSetNumber) db.currentSetNumber=1;
+}
+function saveDB() { localStorage.setItem(STORAGE_KEY,JSON.stringify(db)); }
+function uuid()   { return Date.now().toString(36)+Math.random().toString(36).substr(2,6); }
+
+// =================================================
+//  MATCH / SET
+// =================================================
+function getCurrentMatch() { return db.matches.find(m=>m.id===db.currentMatchId)||null; }
+function getCurrentSet()   { const m=getCurrentMatch(); if(!m) return null; return m.sets.find(s=>s.setNum===db.currentSetNumber)||null; }
+function ensureSet() {
+  const m=getCurrentMatch(); if(!m) return null;
+  let s=m.sets.find(x=>x.setNum===db.currentSetNumber);
+  if(!s){ s={setNum:db.currentSetNumber,myScore:0,opScore:0,actions:[]}; m.sets.push(s); saveDB(); }
+  return s;
+}
+function addAction(action) {
+  const s=ensureSet(); if(!s){ showToast('先に試合を作成・選択してください'); return false; }
+  action.id=uuid(); action.ts=new Date().toISOString();
+  s.actions.push(action); saveDB(); return true;
+}
+
+// =================================================
+//  PLAYERS
+// =================================================
+let selectedPos='';
+function selectPos(btn,pos) {
+  document.querySelectorAll('#posGrid .sel-btn').forEach(b=>b.classList.remove('selected'));
+  btn.classList.add('selected'); selectedPos=pos;
+}
+function addPlayer() {
+  const num=parseInt(document.getElementById('newPlayerNum').value);
+  const name=document.getElementById('newPlayerName').value.trim();
+  if(!name){ showToast('名前を入力してください'); return; }
+  if(!num||num<1){ showToast('背番号を入力してください'); return; }
+  if(db.players.find(p=>p.number===num)){ showToast('同じ背番号の選手がいます'); return; }
+  db.players.push({id:uuid(),name,number:num,position:selectedPos||'その他'});
+  saveDB();
+  document.getElementById('newPlayerNum').value='';
+  document.getElementById('newPlayerName').value='';
+  document.querySelectorAll('#posGrid .sel-btn').forEach(b=>b.classList.remove('selected'));
+  selectedPos='';
+  renderPlayerList(); showToast('選手を追加しました');
+}
+function deletePlayer(id) {
+  if(!confirm('この選手を削除しますか？')) return;
+  db.players=db.players.filter(p=>p.id!==id); saveDB(); renderPlayerList();
+}
+function renderPlayerList() {
+  const el=document.getElementById('playerList');
+  document.getElementById('playerCountBadge').textContent=db.players.length;
+  if(!db.players.length){ el.innerHTML='<div class="empty-state"><div class="empty-icon">👤</div><p>選手が登録されていません</p></div>'; return; }
+  el.innerHTML=[...db.players].sort((a,b)=>a.number-b.number).map(p=>`
+    <div class="player-item">
+      <div class="player-num">${p.number}</div>
+      <div class="player-info"><div class="pname">${p.name}</div><div class="ppos">${p.position}</div></div>
+      <button class="btn btn-sm btn-danger" onclick="deletePlayer('${p.id}')">削除</button>
+    </div>`).join('');
+}
+
+// =================================================
+//  MATCHES
+// =================================================
+function createMatch() {
+  const opp=document.getElementById('newMatchOpp').value.trim();
+  const date=document.getElementById('newMatchDate').value;
+  if(!opp){ showToast('相手チーム名を入力してください'); return; }
+  if(!date){ showToast('試合日を入力してください'); return; }
+  const m={id:uuid(),opponent:opp,date,sets:[]};
+  db.matches.unshift(m); db.currentMatchId=m.id; db.currentSetNumber=1;
+  ensureSet(); saveDB();
+  document.getElementById('newMatchOpp').value='';
+  document.getElementById('newMatchDate').value='';
+  renderMatchList(); updateHeader(); renderScoreboard();
+  showToast('試合を作成しました'); showPage('record');
+}
+function selectMatch(id) {
+  db.currentMatchId=id;
+  const m=db.matches.find(x=>x.id===id);
+  db.currentSetNumber=m&&m.sets.length>0?Math.max(...m.sets.map(s=>s.setNum)):1;
+  ensureSet(); saveDB();
+  renderMatchList(); updateHeader(); renderScoreboard(); renderLog();
+  showPage('record'); showToast('試合を選択しました');
+}
+function deleteMatch(id) {
+  if(!confirm('この試合データを削除しますか？')) return;
+  db.matches=db.matches.filter(m=>m.id!==id);
+  if(db.currentMatchId===id){ db.currentMatchId=null; db.currentSetNumber=1; }
+  saveDB(); renderMatchList(); updateHeader(); renderScoreboard(); renderLog();
+}
+function renderMatchList() {
+  const el=document.getElementById('matchList');
+  if(!db.matches.length){ el.innerHTML='<div class="empty-state"><div class="empty-icon">📋</div><p>試合がありません</p></div>'; return; }
+  el.innerHTML=db.matches.map(m=>{
+    const ia=m.id===db.currentMatchId;
+    const ty=m.sets.reduce((a,s)=>a+s.myScore,0);
+    const to=m.sets.reduce((a,s)=>a+s.opScore,0);
+    return `<div class="match-item ${ia?'active-match':''}" onclick="selectMatch('${m.id}')">
+      <div class="mdate">${formatDate(m.date)}</div>
+      <div class="mopp">${ia?'▶ ':''}vs ${m.opponent}</div>
+      <div class="mscore">総得点 ${ty}–${to} (${m.sets.length}セット)</div>
+      <div style="display:flex;justify-content:flex-end;margin-top:6px;">
+        <button class="btn btn-sm btn-danger" onclick="event.stopPropagation();deleteMatch('${m.id}')">削除</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+function formatDate(d) {
+  if(!d) return '';
+  const dt=new Date(d+'T00:00:00');
+  return `${dt.getFullYear()}年${dt.getMonth()+1}月${dt.getDate()}日`;
+}
+
+// =================================================
+//  SCOREBOARD
+// =================================================
+function renderScoreboard() {
+  const m=getCurrentMatch(), s=getCurrentSet();
+  const my=s?s.myScore:0, op=s?s.opScore:0, opp=m?m.opponent:'—';
+  document.getElementById('scoreboardWrap').innerHTML=`
+    <div class="scoreboard">
+      <div class="score-teams">
+        <div class="score-team"><div class="score-name">自チーム</div><div class="score-number">${my}</div></div>
+        <div class="score-vs">—</div>
+        <div class="score-team"><div class="score-name">${opp}</div><div class="score-number">${op}</div></div>
+      </div>
+      <div class="score-btns">
+        <button class="score-btn" onclick="addScore('my',-1)">－</button>
+        <button class="score-btn" style="background:rgba(255,255,255,.3);" onclick="addScore('my',1)">自 ＋1</button>
+        <button class="score-btn" style="background:rgba(255,255,255,.3);" onclick="addScore('op',1)">相手 ＋1</button>
+        <button class="score-btn" onclick="addScore('op',-1)">－</button>
+      </div>
+      <div class="set-info">第${db.currentSetNumber}セット${m?' | '+formatDate(m.date):''}</div>
+    </div>`;
+}
+function addScore(side,delta) {
+  const s=ensureSet(); if(!s){ showToast('試合を選択してください'); return; }
+  if(side==='my') s.myScore=Math.max(0,s.myScore+delta);
+  else            s.opScore=Math.max(0,s.opScore+delta);
+  saveDB(); renderScoreboard();
+}
+function endSet() {
+  if(!getCurrentMatch()){ showToast('試合を選択してください'); return; }
+  if(!confirm(`第${db.currentSetNumber}セットを終了しますか？`)) return;
+  db.currentSetNumber++; ensureSet(); saveDB();
+  renderScoreboard(); renderLog(); showToast(`第${db.currentSetNumber}セット開始`);
+}
+
+// =================================================
+//  LABELS
+// =================================================
+const ACTION_LABELS = { spike:'スパイク', serve:'サーブ', receive:'レシーブ', block:'ブロック', loss:'失点', rally:'ラリー' };
+const RESULT_LABELS = {
+  kill:'決定', out:'アウト', net:'ネット', blocked:'被ブロック',
+  disrupted:'崩した', normal_spike:'普通（つながれた）',
+  ace:'サービスポイント', serve_error:'サーブミス', effective:'崩した(サーブ)', normal:'普通(サーブ)',
+  perfect:'セッター返球', good:'成功', one_hand:'片手成功', receive_error:'ミス',
+  shutout:'シャットアウト', touch:'ワンタッチ', block_error:'ブロックミス',
+  serve_err:'サーブミス', spike_err:'スパイクミス', recv_err:'レシーブミス',
+  conn_err:'連携ミス', collision:'お見合い', no_follow:'ブロックフォロー不足',
+  free_ball:'フリーボールミス', other:'その他', win:'勝利', loss_end:'失点'
+};
+const DIR_LABELS    = { cross:'クロス', straight:'ストレート', feint:'フェイント', push:'プッシュ' };
+const RECV_TYPE_LABELS = { serve_cut:'サーブカット', spike_cut:'スパイクカット', chance_ball:'チャンスボール', feint:'フェイント処理' };
+
+// =================================================
+//  LOG
+// =================================================
+function formatAction(a) {
+  const player=db.players.find(p=>p.id===a.playerId);
+  const pname=player?`${player.number}番 ${player.name}`:'不明';
+  const result=RESULT_LABELS[a.result]||a.result||'';
+  const dir=a.direction?` [${DIR_LABELS[a.direction]||a.direction}]`:'';
+  const tgt=a.target?` →${a.target}番`:'';
+  if(a.type==='loss')   return `${RESULT_LABELS[a.cause]||a.cause||'失点'}${player?' ('+pname+')':''}`;
+  if(a.type==='rally')  return `${a.steps?a.steps.length+'アクション':''}→${RESULT_LABELS[a.endResult]||a.endResult||''}`;
+  if(a.type==='receive'){
+    const tl=a.recvType?`[${RECV_TYPE_LABELS[a.recvType]||a.recvType}] `:'';
+    return `${pname}：${tl}${result}`;
+  }
+  return `${pname}：${result}${dir}${tgt}`;
+}
+function renderLog() {
+  const s=getCurrentSet(), el=document.getElementById('logList');
+  if(!s||!s.actions.length){ el.innerHTML='<div class="empty-state" style="padding:20px;"><p>まだ記録がありません</p></div>'; return; }
+  el.innerHTML=[...s.actions].reverse().slice(0,30).map(a=>{
+    const t=new Date(a.ts);
+    const time=`${String(t.getHours()).padStart(2,'0')}:${String(t.getMinutes()).padStart(2,'0')}`;
+    return `<div class="log-item">
+      <span class="log-badge badge-${a.type}">${ACTION_LABELS[a.type]||a.type}</span>
+      <span class="log-detail">${formatAction(a)}</span>
+      <span class="log-time">${time}</span>
+      <button class="log-edit" onclick="openEditModal('${a.id}')">✏️</button>
+      <button class="log-del"  onclick="deleteAction('${a.id}')">🗑</button>
+    </div>`;
+  }).join('');
+}
+function deleteAction(id) {
+  const s=getCurrentSet(); if(!s) return;
+  s.actions=s.actions.filter(a=>a.id!==id); saveDB(); renderLog(); showToast('削除しました');
+}
+
+// =================================================
+//  MODAL
+// =================================================
+let modalState={};
+
+function openModal(type) {
+  if(!getCurrentMatch()&&type!=='newscore'){ showToast('先に試合を作成・選択してください'); showPage('matches'); return; }
+  modalState={type,step:1}; renderModal();
+  document.getElementById('modalOverlay').classList.add('open');
+}
+function closeModal() {
+  document.getElementById('modalOverlay').classList.remove('open');
+  modalState={}; editState={};
+}
+function renderModal() {
+  const mc=document.getElementById('modalContent');
+  const t=modalState.type;
+  if(t==='spike')    mc.innerHTML=buildSpikeModal();
+  else if(t==='serve')   mc.innerHTML=buildServeModal();
+  else if(t==='receive') mc.innerHTML=buildReceiveModal();
+  else if(t==='block')   mc.innerHTML=buildBlockModal();
+  else if(t==='loss')    mc.innerHTML=buildLossModal();
+  else if(t==='rally')   mc.innerHTML=buildRallyModal();
+  else if(t==='newscore')mc.innerHTML=buildScoreModal();
+  else if(t==='edit')    mc.innerHTML=buildEditModalContent();
+}
+
+function playerPickerHTML(fnName) {
+  if(!db.players.length) return '<div class="empty-state" style="padding:10px;"><p>選手が登録されていません</p></div>';
+  return `<div class="sel-grid">${[...db.players].sort((a,b)=>a.number-b.number).map(p=>`
+    <button class="player-sel-btn" onclick="${fnName}('${p.id}')">
+      <div class="psb-num">${p.number}</div><div class="psb-name">${p.name}</div>
+    </button>`).join('')}</div>`;
+}
+
+// ---- SPIKE ----
+function buildSpikeModal() {
+  const s=modalState; let h=`<div class="modal-title">⚡ スパイク記録</div>`;
+  if(!s.playerId){
+    h+=`<div class="modal-step">① 選手を選択</div>${playerPickerHTML('mSpkPlayer')}`;
+  } else if(!s.result){
+    const p=db.players.find(x=>x.id===s.playerId);
+    h+=`<div class="modal-step">② 結果を選択 — ${p?p.name:''}</div>
+      <div class="sel-grid sel-grid-2">
+        <button class="sel-btn success-sel" onclick="mSpkResult('kill')">✅ 決定</button>
+        <button class="sel-btn danger-sel"  onclick="mSpkResult('out')">❌ アウト</button>
+        <button class="sel-btn danger-sel"  onclick="mSpkResult('net')">🕸 ネット</button>
+        <button class="sel-btn danger-sel"  onclick="mSpkResult('blocked')">🛡 被ブロック</button>
+        <button class="sel-btn"             onclick="mSpkResult('disrupted')">👊 崩した</button>
+        <button class="sel-btn"             onclick="mSpkResult('normal_spike')">➡ 普通</button>
+      </div>`;
+  } else {
+    const p=db.players.find(x=>x.id===s.playerId);
+    h+=`<div class="modal-step">③ コースを選択 — ${p?p.name:''} / ${RESULT_LABELS[s.result]||s.result}</div>
+      <div class="sel-grid sel-grid-2">
+        <button class="sel-btn" onclick="mSpkDir('cross')">📐 クロス</button>
+        <button class="sel-btn" onclick="mSpkDir('straight')">➡ ストレート</button>
+        <button class="sel-btn" onclick="mSpkDir('feint')">🤫 フェイント</button>
+        <button class="sel-btn" onclick="mSpkDir('push')">👊 プッシュ</button>
+      </div>
+      <button class="btn btn-outline btn-sm" onclick="mSpkDir(null)">コース不明でも保存</button>`;
+  }
+  return h;
+}
+function mSpkPlayer(id){ modalState.playerId=id; renderModal(); }
+function mSpkResult(r) { modalState.result=r;   renderModal(); }
+function mSpkDir(dir)  {
+  if(addAction({type:'spike',playerId:modalState.playerId,result:modalState.result,direction:dir})){
+    renderLog(); showToast('スパイクを記録しました'); closeModal();
+  }
+}
+
+// ---- SERVE ----
+function buildServeModal() {
+  const s=modalState; let h=`<div class="modal-title">🏐 サーブ記録</div>`;
+  if(!s.playerId){
+    h+=`<div class="modal-step">① 選手を選択</div>${playerPickerHTML('mSrvPlayer')}`;
+  } else if(!s.result){
+    const p=db.players.find(x=>x.id===s.playerId);
+    h+=`<div class="modal-step">② 結果を選択 — ${p?p.name:''}</div>
+      <div class="sel-grid sel-grid-2">
+        <button class="sel-btn success-sel" onclick="mSrvResult('ace')">🎯 サービスポイント</button>
+        <button class="sel-btn danger-sel"  onclick="mSrvResult('serve_error')">❌ サーブミス</button>
+        <button class="sel-btn"             onclick="mSrvResult('effective')">👍 崩した</button>
+        <button class="sel-btn"             onclick="mSrvResult('normal')">➡ 普通</button>
+      </div>`;
+  } else {
+    const p=db.players.find(x=>x.id===s.playerId);
+    h+=`<div class="modal-step">③ 狙ったゾーン — ${p?p.name:''}<br>
+      <span style="font-size:.72rem;color:#64748b;">前列:4(左)3(中)2(右) / 後列:5(左)6(中)1(右)</span></div>
+      <div class="sel-grid sel-grid-3">
+        ${[4,3,2,5,6,1].map(n=>`<button class="sel-btn" onclick="mSrvTarget(${n})">${n}番</button>`).join('')}
+      </div>
+      <button class="btn btn-outline btn-sm" onclick="mSrvTarget(0)">ゾーン不明で保存</button>`;
+  }
+  return h;
+}
+function mSrvPlayer(id){ modalState.playerId=id; renderModal(); }
+function mSrvResult(r) { modalState.result=r;   renderModal(); }
+function mSrvTarget(t) {
+  if(addAction({type:'serve',playerId:modalState.playerId,result:modalState.result,target:t||null})){
+    renderLog(); showToast('サーブを記録しました'); closeModal();
+  }
+}
+
+// ---- RECEIVE ----
+function buildReceiveModal() {
+  const s=modalState; let h=`<div class="modal-title">🙌 レシーブ記録</div>`;
+  if(!s.playerId){
+    h+=`<div class="modal-step">① 選手を選択</div>${playerPickerHTML('mRcvPlayer')}`;
+  } else if(!s.recvType){
+    const p=db.players.find(x=>x.id===s.playerId);
+    h+=`<div class="modal-step">② 種類を選択 — ${p?p.name:''}</div>
+      <div class="sel-grid sel-grid-2">
+        <button class="sel-btn" onclick="mRcvType('serve_cut')">🏐 サーブカット</button>
+        <button class="sel-btn" onclick="mRcvType('spike_cut')">⚡ スパイクカット</button>
+        <button class="sel-btn" onclick="mRcvType('chance_ball')">🎾 チャンスボール</button>
+        <button class="sel-btn" onclick="mRcvType('feint')">🤫 フェイント処理</button>
+      </div>`;
+  } else {
+    const p=db.players.find(x=>x.id===s.playerId);
+    h+=`<div class="modal-step">③ 結果を選択 — ${p?p.name:''} / ${RECV_TYPE_LABELS[s.recvType]||s.recvType}</div>
+      <div class="sel-grid sel-grid-2">
+        <button class="sel-btn success-sel" onclick="mRcvResult('perfect')">🎯 セッター返球</button>
+        <button class="sel-btn success-sel" onclick="mRcvResult('good')">✅ 成功（つないだ）</button>
+        <button class="sel-btn"             onclick="mRcvResult('one_hand')">🤚 片手成功</button>
+        <button class="sel-btn danger-sel"  onclick="mRcvResult('receive_error')">❌ ミス</button>
+      </div>`;
+  }
+  return h;
+}
+function mRcvPlayer(id){ modalState.playerId=id; renderModal(); }
+function mRcvType(t)   { modalState.recvType=t;  renderModal(); }
+function mRcvResult(r) {
+  if(addAction({type:'receive',playerId:modalState.playerId,result:r,recvType:modalState.recvType||null})){
+    renderLog(); showToast('レシーブを記録しました'); closeModal();
+  }
+}
+
+// ---- BLOCK ----
+function buildBlockModal() {
+  const s=modalState; let h=`<div class="modal-title">🛡️ ブロック記録</div>`;
+  if(!s.playerId){
+    h+=`<div class="modal-step">① 選手を選択</div>${playerPickerHTML('mBlkPlayer')}`;
+  } else {
+    const p=db.players.find(x=>x.id===s.playerId);
+    h+=`<div class="modal-step">② 結果を選択 — ${p?p.name:''}</div>
+      <div class="sel-grid sel-grid-3">
+        <button class="sel-btn success-sel" onclick="mBlkResult('shutout')">🏆 シャットアウト</button>
+        <button class="sel-btn"             onclick="mBlkResult('touch')">👆 ワンタッチ</button>
+        <button class="sel-btn danger-sel"  onclick="mBlkResult('block_error')">❌ ブロックミス</button>
+      </div>`;
+  }
+  return h;
+}
+function mBlkPlayer(id){ modalState.playerId=id; renderModal(); }
+function mBlkResult(r) {
+  if(addAction({type:'block',playerId:modalState.playerId,result:r})){
+    renderLog(); showToast('ブロックを記録しました'); closeModal();
+  }
+}
+
+// ---- LOSS ----
+function buildLossModal() {
+  return `<div class="modal-title">❌ 失点記録</div>
+    <div class="modal-step">失点原因を選択</div>
+    <div class="sel-grid sel-grid-2">
+      <button class="sel-btn danger-sel" onclick="mLoss('serve_err')">🏐 サーブミス</button>
+      <button class="sel-btn danger-sel" onclick="mLoss('spike_err')">⚡ スパイクミス</button>
+      <button class="sel-btn danger-sel" onclick="mLoss('recv_err')">🙌 レシーブミス</button>
+      <button class="sel-btn danger-sel" onclick="mLoss('conn_err')">🔗 連携ミス</button>
+      <button class="sel-btn danger-sel" onclick="mLoss('collision')">💥 お見合い</button>
+      <button class="sel-btn danger-sel" onclick="mLoss('no_follow')">🛡 ブロックフォロー不足</button>
+      <button class="sel-btn danger-sel" onclick="mLoss('free_ball')">🎾 フリーボールミス</button>
+      <button class="sel-btn"            onclick="mLoss('other')">❓ その他</button>
+    </div>`;
+}
+function mLoss(cause) {
+  if(addAction({type:'loss',cause})){ renderLog(); addScore('op',1); showToast('失点を記録しました'); closeModal(); }
+}
+
+// ---- RALLY ----
+let rallySteps=[];
+function buildRallyModal() {
+  const stepsHTML=rallySteps.length
+    ? rallySteps.map((st,i)=>`<div class="rally-entry">
+        <span>${i+1}. ${ACTION_LABELS[st.type]||st.type} — ${RESULT_LABELS[st.result]||st.result}</span>
+        <button class="rally-del-btn" onclick="mRallyDel(${i})">✕</button>
+      </div>`).join('')
+    : '<p style="color:#94a3b8;font-size:.82rem;">アクションを追加してください</p>';
+  return `<div class="modal-title">🔄 ラリー記録</div>
+    <div class="rally-rec-steps">${stepsHTML}</div>
+    <div class="modal-step">アクションを追加</div>
+    <div class="sel-grid sel-grid-3" style="margin-bottom:12px;">
+      <button class="sel-btn" onclick="mRallyAdd('spike','kill')">⚡決定</button>
+      <button class="sel-btn" onclick="mRallyAdd('spike','out')">⚡アウト</button>
+      <button class="sel-btn" onclick="mRallyAdd('receive','perfect')">🙌完璧</button>
+      <button class="sel-btn" onclick="mRallyAdd('receive','good')">🙌成功</button>
+      <button class="sel-btn" onclick="mRallyAdd('receive','receive_error')">🙌ミス</button>
+      <button class="sel-btn" onclick="mRallyAdd('block','shutout')">🛡シャット</button>
+      <button class="sel-btn" onclick="mRallyAdd('block','touch')">🛡タッチ</button>
+      <button class="sel-btn" onclick="mRallyAdd('spike','feint')">🤫フェイント</button>
+      <button class="sel-btn" onclick="mRallyAdd('other','chance')">🎾チャンスボール</button>
+    </div>
+    <div class="modal-step">ラリー結果</div>
+    <div class="sel-grid sel-grid-2">
+      <button class="sel-btn success-sel" onclick="mRallyEnd('win')">✅ 自チーム得点</button>
+      <button class="sel-btn danger-sel"  onclick="mRallyEnd('loss_end')">❌ 失点</button>
+    </div>`;
+}
+function mRallyAdd(type,result){ rallySteps.push({type,result}); renderModal(); }
+function mRallyDel(i)          { rallySteps.splice(i,1); renderModal(); }
+function mRallyEnd(endResult) {
+  if(addAction({type:'rally',steps:[...rallySteps],endResult})){
+    rallySteps=[]; renderLog(); showToast('ラリーを記録しました'); closeModal();
+  }
+}
+
+// ---- SCORE ----
+function buildScoreModal() {
+  const s=getCurrentSet();
+  return `<div class="modal-title">📊 スコア直接入力</div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">自チーム</label>
+        <input class="form-input" type="number" id="scoreInputMy" value="${s?s.myScore:0}" min="0"></div>
+      <div class="form-group"><label class="form-label">相手</label>
+        <input class="form-input" type="number" id="scoreInputOp" value="${s?s.opScore:0}" min="0"></div>
+    </div>
+    <button class="btn btn-primary btn-block" onclick="applyScore()">適用</button>`;
+}
+function applyScore() {
+  const s=ensureSet(); if(!s) return;
+  s.myScore=parseInt(document.getElementById('scoreInputMy').value)||0;
+  s.opScore=parseInt(document.getElementById('scoreInputOp').value)||0;
+  saveDB(); renderScoreboard(); closeModal(); showToast('スコアを更新しました');
+}
+
+// =================================================
+//  EDIT MODAL
+// =================================================
+let editState={};
+
+function openEditModal(actionId) {
+  const s=getCurrentSet(); if(!s) return;
+  const action=s.actions.find(a=>a.id===actionId); if(!action) return;
+  editState={...action};
+  modalState={type:'edit'};
+  document.getElementById('modalContent').innerHTML=buildEditModalContent();
+  document.getElementById('modalOverlay').classList.add('open');
+}
+function refreshEdit() { document.getElementById('modalContent').innerHTML=buildEditModalContent(); }
+
+function ePlayer(id)  { editState.playerId=id;  refreshEdit(); }
+function eResult(r)   { editState.result=r;      refreshEdit(); }
+function eDir(d)      { editState.direction=d;   refreshEdit(); }
+function eTarget(t)   { editState.target=t;      refreshEdit(); }
+function eRcvType(t)  { editState.recvType=t;    refreshEdit(); }
+function eCause(c)    { editState.cause=c;       refreshEdit(); }
+
+function buildEditModalContent() {
+  const a=editState;
+  let h=`<div class="modal-title">✏️ ${ACTION_LABELS[a.type]||a.type}を修正</div>`;
+  if(a.type==='spike'){
+    h+=ePicker()+eSpikeRes()+eDir_sec();
+  } else if(a.type==='serve'){
+    h+=ePicker()+eServeRes()+eServeTgt();
+  } else if(a.type==='receive'){
+    h+=ePicker()+eRcvTypeSec()+eRcvRes();
+  } else if(a.type==='block'){
+    h+=ePicker()+eBlkRes();
+  } else if(a.type==='loss'){
+    h+=eLossCause();
+  } else {
+    h+=`<p style="color:#94a3b8;font-size:.85rem;padding:12px 0;">このアクションは編集できません</p>`;
+  }
+  h+=`<div style="display:flex;gap:8px;margin-top:16px;">
+    <button class="btn btn-outline" onclick="closeModal()" style="flex:1">キャンセル</button>
+    <button class="btn btn-primary" onclick="saveEdit()" style="flex:2">💾 保存</button>
+  </div>`;
+  return h;
+}
+function ePicker() {
+  if(!db.players.length) return '';
+  return `<div class="modal-step">選手</div><div class="sel-grid" style="margin-bottom:12px;">
+    ${[...db.players].sort((a,b)=>a.number-b.number).map(p=>`
+      <button class="player-sel-btn ${p.id===editState.playerId?'selected':''}" onclick="ePlayer('${p.id}')">
+        <div class="psb-num">${p.number}</div><div class="psb-name">${p.name}</div>
+      </button>`).join('')}
+  </div>`;
+}
+function eSpikeRes() {
+  const opts=[['kill','✅ 決定','success-sel'],['out','❌ アウト','danger-sel'],['net','🕸 ネット','danger-sel'],
+    ['blocked','🛡 被ブロック','danger-sel'],['disrupted','👊 崩した',''],['normal_spike','➡ 普通','']];
+  return `<div class="modal-step">結果</div><div class="sel-grid sel-grid-2" style="margin-bottom:12px;">
+    ${opts.map(([v,l,c])=>`<button class="sel-btn ${c} ${editState.result===v?'selected':''}" onclick="eResult('${v}')">${l}</button>`).join('')}
+  </div>`;
+}
+function eDir_sec() {
+  const opts=[['cross','📐 クロス'],['straight','➡ ストレート'],['feint','🤫 フェイント'],['push','👊 プッシュ']];
+  return `<div class="modal-step">コース（任意）</div><div class="sel-grid sel-grid-2" style="margin-bottom:12px;">
+    ${opts.map(([v,l])=>`<button class="sel-btn ${editState.direction===v?'selected':''}" onclick="eDir('${v}')">${l}</button>`).join('')}
+    <button class="sel-btn ${!editState.direction?'selected':''}" onclick="eDir(null)">— なし</button>
+  </div>`;
+}
+function eServeRes() {
+  const opts=[['ace','🎯 サービスポイント','success-sel'],['serve_error','❌ サーブミス','danger-sel'],
+    ['effective','👍 崩した',''],['normal','➡ 普通','']];
+  return `<div class="modal-step">結果</div><div class="sel-grid sel-grid-2" style="margin-bottom:12px;">
+    ${opts.map(([v,l,c])=>`<button class="sel-btn ${c} ${editState.result===v?'selected':''}" onclick="eResult('${v}')">${l}</button>`).join('')}
+  </div>`;
+}
+function eServeTgt() {
+  return `<div class="modal-step">狙ったゾーン（任意）</div><div class="sel-grid sel-grid-3" style="margin-bottom:12px;">
+    ${[4,3,2,5,6,1].map(n=>`<button class="sel-btn ${editState.target===n?'selected':''}" onclick="eTarget(${n})">${n}番</button>`).join('')}
+    <button class="sel-btn ${!editState.target?'selected':''}" onclick="eTarget(null)">— なし</button>
+  </div>`;
+}
+function eRcvTypeSec() {
+  const opts=[['serve_cut','🏐 サーブカット'],['spike_cut','⚡ スパイクカット'],['chance_ball','🎾 チャンスボール'],['feint','🤫 フェイント処理']];
+  return `<div class="modal-step">種類</div><div class="sel-grid sel-grid-2" style="margin-bottom:12px;">
+    ${opts.map(([v,l])=>`<button class="sel-btn ${editState.recvType===v?'selected':''}" onclick="eRcvType('${v}')">${l}</button>`).join('')}
+  </div>`;
+}
+function eRcvRes() {
+  const opts=[['perfect','🎯 セッター返球','success-sel'],['good','✅ 成功','success-sel'],
+    ['one_hand','🤚 片手成功',''],['receive_error','❌ ミス','danger-sel']];
+  return `<div class="modal-step">結果</div><div class="sel-grid sel-grid-2" style="margin-bottom:12px;">
+    ${opts.map(([v,l,c])=>`<button class="sel-btn ${c} ${editState.result===v?'selected':''}" onclick="eResult('${v}')">${l}</button>`).join('')}
+  </div>`;
+}
+function eBlkRes() {
+  const opts=[['shutout','🏆 シャットアウト','success-sel'],['touch','👆 ワンタッチ',''],['block_error','❌ ブロックミス','danger-sel']];
+  return `<div class="modal-step">結果</div><div class="sel-grid sel-grid-3" style="margin-bottom:12px;">
+    ${opts.map(([v,l,c])=>`<button class="sel-btn ${c} ${editState.result===v?'selected':''}" onclick="eResult('${v}')">${l}</button>`).join('')}
+  </div>`;
+}
+function eLossCause() {
+  const causes=[['serve_err','🏐 サーブミス'],['spike_err','⚡ スパイクミス'],['recv_err','🙌 レシーブミス'],
+    ['conn_err','🔗 連携ミス'],['collision','💥 お見合い'],['no_follow','🛡 ブロックフォロー不足'],
+    ['free_ball','🎾 フリーボールミス'],['other','❓ その他']];
+  return `<div class="modal-step">失点原因</div><div class="sel-grid sel-grid-2" style="margin-bottom:12px;">
+    ${causes.map(([v,l])=>`<button class="sel-btn danger-sel ${editState.cause===v?'selected':''}" onclick="eCause('${v}')">${l}</button>`).join('')}
+  </div>`;
+}
+function saveEdit() {
+  const s=getCurrentSet(); if(!s) return;
+  const idx=s.actions.findIndex(a=>a.id===editState.id); if(idx===-1) return;
+  s.actions[idx]={...s.actions[idx],...editState};
+  saveDB(); renderLog(); closeModal(); showToast('記録を修正しました');
+}
+
+// =================================================
+//  ANALYSIS
+// =================================================
+let currentAnalysisView='individual';
+function showAnalysis(view) {
+  currentAnalysisView=view;
+  document.querySelectorAll('.sub-tab').forEach(t=>t.classList.remove('active'));
+  const tabs=document.querySelectorAll('.sub-tab');
+  const idx=['individual','team','course','loss','rally'].indexOf(view);
+  if(tabs[idx]) tabs[idx].classList.add('active');
+  renderAnalysisContent();
+}
+function renderAnalysisContent() {
+  const m=getCurrentMatch();
+  if(!m){ document.getElementById('analysisContent').innerHTML=`
+    <div class="empty-state"><div class="empty-icon">📊</div><p>試合を選択してください</p>
+    <button class="btn btn-primary" style="margin-top:12px;" onclick="showPage('matches')">試合管理へ</button></div>`; return; }
+  const all=m.sets.flatMap(s=>s.actions.map(a=>({...a,setNum:s.setNum})));
+  switch(currentAnalysisView){
+    case 'individual': renderIndividual(all,m); break;
+    case 'team':       renderTeam(all,m);       break;
+    case 'course':     renderCourse(all,m);     break;
+    case 'loss':       renderLoss(all,m);       break;
+    case 'rally':      renderRallyAna(all,m);   break;
+  }
+}
+function pct(n,d)    { if(!d) return '—'; return Math.round(n/d*100)+'%'; }
+function colorPct(v) { const n=parseInt(v); if(isNaN(n)) return ''; return n>=50?'val-good':n>=30?'val-warn':'val-bad'; }
+
+// INDIVIDUAL
+function renderIndividual(actions,m) {
+  if(!db.players.length){ document.getElementById('analysisContent').innerHTML='<div class="empty-state"><div class="empty-icon">👤</div><p>選手が登録されていません</p></div>'; return; }
+  const sorted=[...db.players].sort((a,b)=>a.number-b.number);
+  const selId=window._indSelId||sorted[0].id; window._indSelId=selId;
+  const p=db.players.find(x=>x.id===selId);
+  const pa=actions.filter(a=>a.playerId===selId);
+  const spk=pa.filter(a=>a.type==='spike');
+  const kills=spk.filter(a=>a.result==='kill').length;
+  const sOut=spk.filter(a=>a.result==='out').length;
+  const sNet=spk.filter(a=>a.result==='net').length;
+  const sBlk=spk.filter(a=>a.result==='blocked').length;
+  const sDis=spk.filter(a=>a.result==='disrupted').length;
+  const sNrm=spk.filter(a=>a.result==='normal_spike').length;
+  const srv=pa.filter(a=>a.type==='serve');
+  const aces=srv.filter(a=>a.result==='ace').length;
+  const sErr=srv.filter(a=>a.result==='serve_error').length;
+  const sEff=srv.filter(a=>a.result==='effective').length;
+  const rcv=pa.filter(a=>a.type==='receive');
+  const rPfct=rcv.filter(a=>a.result==='perfect').length;
+  const rGood=rcv.filter(a=>a.result==='good').length;
+  const rOne=rcv.filter(a=>a.result==='one_hand').length;
+  const rErr=rcv.filter(a=>a.result==='receive_error').length;
+  const rcvByType={};
+  Object.keys(RECV_TYPE_LABELS).forEach(t=>{
+    const ta=rcv.filter(a=>a.recvType===t);
+    const ts=ta.filter(a=>a.result==='perfect'||a.result==='good'||a.result==='one_hand').length;
+    rcvByType[t]={total:ta.length,success:ts,pct:ta.length?Math.round(ts/ta.length*100):0};
+  });
+  const blk=pa.filter(a=>a.type==='block');
+  const bSht=blk.filter(a=>a.result==='shutout').length;
+  const bTch=blk.filter(a=>a.result==='touch').length;
+  const bErr=blk.filter(a=>a.result==='block_error').length;
+  document.getElementById('analysisContent').innerHTML=`
+    <div class="card"><div class="card-title">選手を選択</div>
+      <div class="sel-grid">${sorted.map(pl=>`<button class="player-sel-btn ${pl.id===selId?'selected':''}" onclick="selIndPlayer('${pl.id}')"><div class="psb-num">${pl.number}</div><div class="psb-name">${pl.name}</div></button>`).join('')}</div>
+    </div>
+    ${p?`<div style="text-align:center;margin-bottom:10px;"><span style="font-size:1.2rem;font-weight:800;">${p.number}番 ${p.name}</span><span style="font-size:.8rem;color:#64748b;margin-left:8px;">${p.position}</span></div>`:''}
+    <div class="card"><div class="card-title">⚡ スパイク</div>
+      <div class="two-col">
+        <div class="kpi-card"><div class="kpi-val">${spk.length}</div><div class="kpi-label">打数</div></div>
+        <div class="kpi-card"><div class="kpi-val">${kills}</div><div class="kpi-label">決定数</div></div>
+        <div class="kpi-card"><div class="kpi-val ${colorPct(pct(kills,spk.length))}">${pct(kills,spk.length)}</div><div class="kpi-label">決定率</div></div>
+        <div class="kpi-card"><div class="kpi-val ${sOut+sNet>2?'val-bad':''}">${sOut+sNet}</div><div class="kpi-label">ミス数</div></div>
+      </div>
+      <div class="table-wrap"><table class="stats-table">
+        <tr><th>アウト</th><th>ネット</th><th>被ブロック</th><th>崩した</th><th>普通</th></tr>
+        <tr><td class="${sOut>2?'val-bad':''}">${sOut}</td><td class="${sNet>2?'val-bad':''}">${sNet}</td>
+            <td class="${sBlk>2?'val-bad':''}">${sBlk}</td><td>${sDis}</td><td>${sNrm}</td></tr>
+      </table></div>
+    </div>
+    <div class="card"><div class="card-title">🏐 サーブ</div>
+      <div class="two-col">
+        <div class="kpi-card"><div class="kpi-val">${srv.length}</div><div class="kpi-label">サーブ本数</div></div>
+        <div class="kpi-card"><div class="kpi-val val-good">${aces}</div><div class="kpi-label">サービスポイント</div></div>
+        <div class="kpi-card"><div class="kpi-val ${sErr>0?'val-bad':''}">${sErr}</div><div class="kpi-label">サーブミス</div></div>
+        <div class="kpi-card"><div class="kpi-val">${sEff}</div><div class="kpi-label">崩した本数</div></div>
+      </div>
+    </div>
+    <div class="card"><div class="card-title">🙌 レシーブ</div>
+      <div class="two-col">
+        <div class="kpi-card"><div class="kpi-val">${rcv.length}</div><div class="kpi-label">レシーブ本数</div></div>
+        <div class="kpi-card"><div class="kpi-val">${rPfct+rGood+rOne}</div><div class="kpi-label">成功数</div></div>
+        <div class="kpi-card"><div class="kpi-val ${colorPct(pct(rPfct,rcv.length))}">${pct(rPfct,rcv.length)}</div><div class="kpi-label">セッター返球率</div></div>
+        <div class="kpi-card"><div class="kpi-val ${rErr>0?'val-bad':''}">${rErr}</div><div class="kpi-label">ミス数</div></div>
+      </div>
+      <div style="font-size:.82rem;color:#64748b;text-align:center;margin-bottom:10px;">片手レシーブ成功率：<strong>${pct(rOne,rOne+rGood+rPfct)}</strong></div>
+      <div class="card-title">種類別内訳</div>
+      <div class="table-wrap"><table class="stats-table">
+        <tr><th>種類</th><th>本数</th><th>成功</th><th>成功率</th></tr>
+        ${Object.entries(RECV_TYPE_LABELS).map(([k,l])=>`<tr><td class="player-name">${l}</td><td>${rcvByType[k].total}</td><td>${rcvByType[k].success}</td><td class="${colorPct(rcvByType[k].pct+'%')}">${rcvByType[k].total?rcvByType[k].pct+'%':'—'}</td></tr>`).join('')}
+      </table></div>
+    </div>
+    <div class="card"><div class="card-title">🛡️ ブロック</div>
+      <div class="two-col">
+        <div class="kpi-card"><div class="kpi-val val-good">${bSht}</div><div class="kpi-label">シャットアウト</div></div>
+        <div class="kpi-card"><div class="kpi-val">${bTch}</div><div class="kpi-label">ワンタッチ</div></div>
+        <div class="kpi-card"><div class="kpi-val ${bErr>0?'val-bad':''}">${bErr}</div><div class="kpi-label">ブロックミス</div></div>
+        <div class="kpi-card"><div class="kpi-val">${blk.length}</div><div class="kpi-label">合計試行</div></div>
+      </div>
+    </div>`;
+}
+function selIndPlayer(id){ window._indSelId=id; renderAnalysisContent(); }
+
+// TEAM
+function renderTeam(actions,m) {
+  const totalMy=m.sets.reduce((a,s)=>a+s.myScore,0);
+  const totalOp=m.sets.reduce((a,s)=>a+s.opScore,0);
+  const kills=actions.filter(a=>a.type==='spike'&&a.result==='kill').length;
+  const aces=actions.filter(a=>a.type==='serve'&&a.result==='ace').length;
+  const shuts=actions.filter(a=>a.type==='block'&&a.result==='shutout').length;
+  const other=Math.max(0,totalMy-kills-aces-shuts);
+  const total=kills+aces+shuts+other||1;
+  const pieData=[{l:'スパイク得点',v:kills,c:'#e11d48'},{l:'サーブ得点',v:aces,c:'#0284c7'},{l:'ブロック得点',v:shuts,c:'#7c3aed'},{l:'相手ミス等',v:other,c:'#16a34a'}];
+  const setRows=m.sets.map(s=>{
+    const sa=s.actions;
+    return `<tr><td>${s.setNum}セット</td><td>${s.myScore}</td><td>${s.opScore}</td>
+      <td>${sa.filter(a=>a.type==='spike'&&a.result==='kill').length}</td>
+      <td>${sa.filter(a=>a.type==='serve'&&a.result==='ace').length}</td>
+      <td class="${sa.filter(a=>a.type==='serve'&&a.result==='serve_error').length>3?'val-bad':''}">${sa.filter(a=>a.type==='serve'&&a.result==='serve_error').length}</td></tr>`;
+  }).join('');
+  const playerBar=[...db.players].map(p=>{
+    const ps=actions.filter(a=>a.playerId===p.id&&a.type==='spike');
+    const k=ps.filter(a=>a.result==='kill').length;
+    return {name:`${p.number}.${p.name}`,kills:k,total:ps.length,pct:ps.length?Math.round(k/ps.length*100):0};
+  }).filter(x=>x.total>0).sort((a,b)=>b.kills-a.kills);
+  let svgPaths=''; let angle=-Math.PI/2;
+  pieData.forEach(d=>{ if(!d.v) return; const sw=d.v/total*Math.PI*2; const x1=50+40*Math.cos(angle),y1=50+40*Math.sin(angle),x2=50+40*Math.cos(angle+sw),y2=50+40*Math.sin(angle+sw); svgPaths+=`<path d="M50,50 L${x1},${y1} A40,40,0,${sw>Math.PI?1:0},1,${x2},${y2} Z" fill="${d.c}" opacity=".9"/>`; angle+=sw; });
+  document.getElementById('analysisContent').innerHTML=`
+    <div class="two-col"><div class="kpi-card"><div class="kpi-val">${totalMy}</div><div class="kpi-label">自チーム総得点</div></div>
+    <div class="kpi-card"><div class="kpi-val">${totalOp}</div><div class="kpi-label">相手チーム総得点</div></div></div>
+    <div class="card"><div class="card-title">得点の内訳</div>
+      <div class="pie-wrap">
+        <svg viewBox="0 0 100 100" width="110" height="110" style="flex-shrink:0;">${svgPaths}</svg>
+        <div class="pie-legend">${pieData.map(d=>`<div class="pie-legend-item"><div class="pie-dot" style="background:${d.c}"></div><span>${d.l}：<strong>${d.v}</strong>（${pct(d.v,total)}）</span></div>`).join('')}</div>
+      </div>
+    </div>
+    <div class="card"><div class="card-title">セット別スコア</div><div class="table-wrap"><table class="stats-table">
+      <tr><th>セット</th><th>自</th><th>相手</th><th>スパイク決定</th><th>サービスPT</th><th>サーブミス</th></tr>${setRows}</table></div></div>
+    <div class="card"><div class="card-title">選手別スパイク決定数</div><div class="bar-chart">
+      ${playerBar.map(d=>`<div class="bar-row"><div class="bar-label">${d.name}</div><div class="bar-track"><div class="bar-fill" style="width:${Math.min(100,d.pct)}%;background:#e11d48;"></div></div><div class="bar-val">${d.kills}本</div></div>`).join('')}
+    </div></div>`;
+}
+
+// COURSE
+function renderCourse(actions,m) {
+  const spk=actions.filter(a=>a.type==='spike');
+  const srv=actions.filter(a=>a.type==='serve'&&a.target);
+  const dc={cross:0,straight:0,feint:0,push:0};
+  spk.forEach(a=>{ if(a.direction&&dc[a.direction]!==undefined) dc[a.direction]++; });
+  const dk={};
+  Object.keys(dc).forEach(d=>{ const ds=spk.filter(a=>a.direction===d); const k=ds.filter(a=>a.result==='kill').length; dk[d]={total:ds.length,kills:k,pct:ds.length?Math.round(k/ds.length*100):0}; });
+  const zc={};
+  srv.forEach(a=>{ if(a.target) zc[a.target]=(zc[a.target]||0)+1; });
+  const maxZ=Math.max(...Object.values(zc),1);
+  const pcourse=[...db.players].map(p=>{
+    const ps=spk.filter(a=>a.playerId===p.id&&a.direction);
+    if(!ps.length) return null;
+    const dirs={}; ps.forEach(a=>{ dirs[a.direction]=(dirs[a.direction]||0)+1; });
+    const top=Object.entries(dirs).sort((a,b)=>b[1]-a[1])[0];
+    return {name:`${p.number}.${p.name}`,topDir:DIR_LABELS[top[0]],topPct:Math.round(top[1]/ps.length*100),total:ps.length};
+  }).filter(Boolean);
+  const layout=[[4,3,2],[5,6,1]];
+  let czHTML=''; layout.forEach((row,ri)=>{ row.forEach((z,ci)=>{ const c=zc[z]||0; const heat=maxZ>0?c/maxZ:0; const isHot=heat>.5; czHTML+=`<div class="court-zone" style="left:${ci*33.33}%;top:${ri===0?0:50}%;width:33.33%;height:50%;background:rgba(${isHot?'239,68,68':'59,130,246'},${.1+heat*.7});"><div style="text-align:center;">${z}<br><span style="font-size:.62rem;">${c}</span></div></div>`; }); });
+  document.getElementById('analysisContent').innerHTML=`
+    <div class="card"><div class="card-title">⚡ スパイクコース別成績</div>
+      <div class="table-wrap"><table class="stats-table"><tr><th>コース</th><th>本数</th><th>決定</th><th>決定率</th></tr>
+        ${Object.entries(dc).map(([d,c])=>`<tr><td>${DIR_LABELS[d]}</td><td>${c}</td><td>${dk[d].kills}</td><td class="${colorPct(dk[d].pct+'%')}">${dk[d].pct}%</td></tr>`).join('')}</table></div>
+      <div class="bar-chart" style="margin-top:10px;">
+        ${Object.entries(dc).map(([d,c])=>`<div class="bar-row"><div class="bar-label">${DIR_LABELS[d]}</div><div class="bar-track"><div class="bar-fill" style="width:${spk.length?Math.min(100,Math.round(c/spk.length*100)):0}%;background:#e11d48;"></div></div><div class="bar-val">${c}本</div></div>`).join('')}
+      </div>
+    </div>
+    <div class="card"><div class="card-title">🏐 サーブコース（相手ゾーン）</div>
+      <div class="court-wrap"><div class="court"><div class="court-net"></div>${czHTML}</div></div>
+      <div class="table-wrap" style="margin-top:10px;"><table class="stats-table"><tr><th>ゾーン</th>${[1,2,3,4,5,6].map(z=>`<th>${z}</th>`).join('')}</tr><tr><td>本数</td>${[1,2,3,4,5,6].map(z=>`<td>${zc[z]||0}</td>`).join('')}</tr></table></div>
+    </div>
+    <div class="card"><div class="card-title">選手別 得意コース</div>
+      ${pcourse.length?pcourse.map(p=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid #e2e8f0;"><span style="font-weight:600;">${p.name}</span><span>${p.topDir} <strong>${p.topPct}%</strong>（${p.total}本中）</span></div>`).join(''):'<p style="color:#94a3b8;font-size:.85rem;">データがありません</p>'}
+    </div>`;
+}
+
+// LOSS
+function renderLoss(actions,m) {
+  const la=actions.filter(a=>a.type==='loss');
+  const causes={serve_err:'サーブミス',spike_err:'スパイクミス',recv_err:'レシーブミス',conn_err:'連携ミス',collision:'お見合い',no_follow:'ブロックフォロー不足',free_ball:'フリーボールミス',other:'その他'};
+  const counts={}; Object.keys(causes).forEach(k=>{ counts[k]=la.filter(a=>a.cause===k).length; });
+  const sorted=Object.entries(counts).sort((a,b)=>b[1]-a[1]);
+  const maxC=Math.max(...Object.values(counts),1);
+  const top=sorted[0];
+  const setRows=m.sets.map(s=>{
+    const sl=s.actions.filter(a=>a.type==='loss');
+    const tc=Object.entries(causes).map(([k,v])=>({key:k,label:v,count:sl.filter(a=>a.cause===k).length})).sort((a,b)=>b.count-a.count)[0];
+    return `<tr><td>${s.setNum}セット</td><td>${sl.length}</td><td>${tc&&tc.count>0?tc.label:'—'}</td></tr>`;
+  }).join('');
+  document.getElementById('analysisContent').innerHTML=`
+    <div class="card"><div class="card-title">失点分析サマリー</div>
+      <div class="two-col">
+        <div class="kpi-card"><div class="kpi-val val-bad">${la.length}</div><div class="kpi-label">記録された失点</div></div>
+        <div class="kpi-card"><div class="kpi-val" style="font-size:1.1rem;">${top&&top[1]>0?causes[top[0]]:'—'}</div><div class="kpi-label">最多失点原因</div></div>
+      </div>
+      ${top&&top[1]>0?`<div style="background:#fef2f2;border-radius:8px;padding:12px;margin-top:10px;border-left:4px solid #dc2626;"><p style="font-size:.85rem;font-weight:700;color:#991b1b;">💡 優先改善ポイント</p><p style="font-size:.82rem;margin-top:4px;color:#b91c1c;">${causes[top[0]]}が${top[1]}失点（全体の${pct(top[1],la.length)}）。まずここを改善！</p></div>`:''}
+    </div>
+    <div class="card"><div class="card-title">失点原因別内訳</div><div class="bar-chart">
+      ${sorted.map(([k,c])=>`<div class="bar-row"><div class="bar-label">${causes[k]}</div><div class="bar-track"><div class="bar-fill" style="width:${Math.min(100,Math.round(c/maxC*100))}%;background:#dc2626;"></div></div><div class="bar-val">${c}点${la.length?' ('+pct(c,la.length)+')':''}</div></div>`).join('')}
+    </div></div>
+    <div class="card"><div class="card-title">セット別失点内訳</div><div class="table-wrap"><table class="stats-table"><tr><th>セット</th><th>失点数</th><th>主な原因</th></tr>${setRows}</table></div></div>`;
+}
+
+// RALLY
+function renderRallyAna(actions,m) {
+  const rl=actions.filter(a=>a.type==='rally');
+  const wins=rl.filter(a=>a.endResult==='win').length;
+  const losses=rl.filter(a=>a.endResult==='loss_end').length;
+  const avgLen=rl.length?Math.round(rl.reduce((a,r)=>(a+(r.steps?r.steps.length:0)),0)/rl.length*10)/10:0;
+  const sc={}; rl.forEach(r=>{ (r.steps||[]).forEach(s=>{ const k=`${s.type}_${s.result}`; sc[k]=(sc[k]||0)+1; }); });
+  const tops=Object.entries(sc).sort((a,b)=>b[1]-a[1]).slice(0,6);
+  const exs=[...rl].reverse().slice(0,4);
+  document.getElementById('analysisContent').innerHTML=`
+    <div class="two-col">
+      <div class="kpi-card"><div class="kpi-val">${rl.length}</div><div class="kpi-label">総ラリー数</div></div>
+      <div class="kpi-card"><div class="kpi-val ${colorPct(pct(wins,rl.length))}">${pct(wins,rl.length)}</div><div class="kpi-label">勝率</div></div>
+      <div class="kpi-card"><div class="kpi-val val-good">${wins}</div><div class="kpi-label">獲得ラリー</div></div>
+      <div class="kpi-card"><div class="kpi-val val-bad">${losses}</div><div class="kpi-label">失ラリー</div></div>
+    </div>
+    <div class="card"><div class="card-title">平均ラリー長</div><div style="text-align:center;font-size:2.5rem;font-weight:800;color:var(--primary);">${avgLen}<span style="font-size:1rem;font-weight:400;color:#64748b;"> アクション</span></div></div>
+    <div class="card"><div class="card-title">頻出アクション</div><div class="bar-chart">
+      ${tops.length?tops.map(([k,c])=>{ const [t,r]=k.split('_'); return `<div class="bar-row"><div class="bar-label">${ACTION_LABELS[t]||t} ${RESULT_LABELS[r]||r}</div><div class="bar-track"><div class="bar-fill" style="width:${Math.min(100,c*10)}%;background:#0284c7;"></div></div><div class="bar-val">${c}回</div></div>`; }).join(''):'<p style="color:#94a3b8;font-size:.85rem;">データなし</p>'}
+    </div></div>
+    <div class="card"><div class="card-title">直近のラリー</div>
+      ${exs.length?exs.map((r,i)=>`<div style="margin-bottom:12px;"><div style="display:flex;justify-content:space-between;font-size:.75rem;color:#64748b;margin-bottom:4px;"><span>ラリー ${rl.length-i}</span><span class="${r.endResult==='win'?'val-good':'val-bad'}">${r.endResult==='win'?'✅ 獲得':'❌ 失点'}</span></div><div class="rally-flow">${(r.steps||[]).map((s,si)=>`<div class="rally-step"><span style="color:#94a3b8;font-size:.7rem;">${si+1}</span><span>${ACTION_LABELS[s.type]||s.type}</span><span style="color:#94a3b8;">→</span><span>${RESULT_LABELS[s.result]||s.result}</span></div>`).join('')}<div class="rally-step ${r.endResult==='win'?'win':'loss'}"><span>🏁</span><span style="font-weight:700;">${r.endResult==='win'?'自チーム得点':'失点'}</span></div></div></div>`).join('<hr style="border:none;border-top:1px solid #e2e8f0;margin:10px 0;">'):'<p style="color:#94a3b8;font-size:.85rem;">データなし</p>'}
+    </div>`;
+}
+
+// =================================================
+//  PAGE NAV
+// =================================================
+function showPage(name) {
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById('page-'+name).classList.add('active');
+  const nb=document.getElementById('nav-'+name); if(nb) nb.classList.add('active');
+  if(name==='record')   { renderScoreboard(); renderLog(); }
+  if(name==='analysis') showAnalysis(currentAnalysisView);
+  if(name==='players')  renderPlayerList();
+  if(name==='matches')  renderMatchList();
+}
+function updateHeader() {
+  const m=getCurrentMatch();
+  document.getElementById('headerTitle').textContent=m?`🏐 vs ${m.opponent}`:'🏐 バレー分析ツール';
+  document.getElementById('headerSub').textContent=m?`${formatDate(m.date)} | 第${db.currentSetNumber}セット`:'試合を選択してください';
+}
+
+// =================================================
+//  TOAST
+// =================================================
+let toastTimer;
+function showToast(msg) {
+  const el=document.getElementById('toast');
+  el.textContent=msg; el.classList.add('show');
+  clearTimeout(toastTimer); toastTimer=setTimeout(()=>el.classList.remove('show'),2200);
+}
+
+// =================================================
+//  iOS TOUCH FIX（グローバル版）
+//  overflow:scroll コンテナ内で iOS がクリックを遅延・キャンセルする問題を解決
+//  ページ全体の touchend を監視し、ボタンタップを即座に発火させる
+// =================================================
+(function() {
+  let startX=0, startY=0, handled=false;
+
+  document.addEventListener('touchstart', function(e) {
+    handled=false;
+    if(e.touches[0]){ startX=e.touches[0].clientX; startY=e.touches[0].clientY; }
+  }, {passive:true});
+
+  document.addEventListener('touchend', function(e) {
+    const t=e.changedTouches[0]; if(!t) return;
+    // 指が 12px 以上動いたらスクロールとみなして無視
+    if(Math.abs(t.clientX-startX)>12||Math.abs(t.clientY-startY)>12) return;
+    // タッチ座標にある要素を取得（最も信頼性が高い方法）
+    const el=document.elementFromPoint(t.clientX, t.clientY);
+    if(!el) return;
+    const btn=el.closest('button');
+    if(!btn||btn.disabled) return;
+    handled=true;
+    e.preventDefault();   // 300ms 遅延クリックを抑制
+    btn.click();          // 合成クリックを即座に発火
+  }, {passive:false});
+
+  // iOS が 300ms 後に送ってくるネイティブクリックをキャプチャフェーズで遮断
+  document.addEventListener('click', function(e) {
+    if(handled && e.isTrusted){
+      e.stopImmediatePropagation();
+      e.preventDefault();
+      handled=false;
+    }
+  }, true);
+})();
+
+// =================================================
+//  INIT
+// =================================================
+function init() {
+  loadDB();
+  document.getElementById('newMatchDate').value=new Date().toISOString().split('T')[0];
+  updateHeader(); renderScoreboard(); renderLog(); renderPlayerList(); renderMatchList(); renderAnalysisContent();
+
+  // モーダルオーバーレイ：外側タップで閉じる
+  const overlay=document.getElementById('modalOverlay');
+  let otX=0, otY=0;
+  overlay.addEventListener('touchstart', function(e){ if(e.touches[0]){otX=e.touches[0].clientX; otY=e.touches[0].clientY;} }, {passive:true});
+  overlay.addEventListener('touchend', function(e){
+    const ch=e.changedTouches[0]; if(!ch) return;
+    if(Math.abs(ch.clientX-otX)>10||Math.abs(ch.clientY-otY)>10) return;
+    if(e.target===overlay){ e.preventDefault(); closeModal(); }
+  }, {passive:false});
+  overlay.addEventListener('click', function(e){ if(e.target===overlay) closeModal(); });
+
+  // iOS touch fix はページ読み込み時にグローバルで適用済み
+}
+
+init();
+</script>
+</body>
+</html>

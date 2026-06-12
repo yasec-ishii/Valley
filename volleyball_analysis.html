@@ -474,7 +474,7 @@ const RESULT_LABELS = {
   kill:'決定', out:'アウト', net:'ネット', blocked:'被ブロック',
   disrupted:'崩した', normal_spike:'普通（つながれた）',
   ace:'サービスポイント', serve_error:'サーブミス', effective:'崩した(サーブ)', normal:'普通(サーブ)',
-  perfect:'セッター返球', good:'成功', one_hand:'片手成功', receive_error:'ミス',
+  perfect:'セッター返球', good:'成功', one_hand:'相手コート返球', receive_error:'ミス',
   shutout:'シャットアウト', touch:'ワンタッチ', block_error:'ブロックミス',
   serve_err:'サーブミス', spike_err:'スパイクミス', recv_err:'レシーブミス',
   conn_err:'連携ミス', collision:'お見合い', no_follow:'ブロックフォロー不足',
@@ -645,7 +645,7 @@ function buildReceiveModal() {
       <div class="sel-grid sel-grid-2">
         <button class="sel-btn success-sel" onclick="mRcvResult('perfect')">🎯 セッター返球</button>
         <button class="sel-btn success-sel" onclick="mRcvResult('good')">✅ 成功（つないだ）</button>
-        <button class="sel-btn"             onclick="mRcvResult('one_hand')">🤚 片手成功</button>
+        <button class="sel-btn"             onclick="mRcvResult('one_hand')">↩ 相手コート返球</button>
         <button class="sel-btn danger-sel"  onclick="mRcvResult('receive_error')">❌ ミス</button>
       </div>`;
   }
@@ -845,7 +845,7 @@ function eRcvTypeSec() {
 }
 function eRcvRes() {
   const opts=[['perfect','🎯 セッター返球','success-sel'],['good','✅ 成功','success-sel'],
-    ['one_hand','🤚 片手成功',''],['receive_error','❌ ミス','danger-sel']];
+    ['one_hand','↩ 相手コート返球',''],['receive_error','❌ ミス','danger-sel']];
   return `<div class="modal-step">結果</div><div class="sel-grid sel-grid-2" style="margin-bottom:12px;">
     ${opts.map(([v,l,c])=>`<button class="sel-btn ${c} ${editState.result===v?'selected':''}" onclick="eResult('${v}')">${l}</button>`).join('')}
   </div>`;
@@ -966,7 +966,7 @@ function renderIndividual(actions,m) {
         <div class="kpi-card"><div class="kpi-val ${colorPct(pct(rPfct,rcv.length))}">${pct(rPfct,rcv.length)}</div><div class="kpi-label">セッター返球率</div></div>
         <div class="kpi-card"><div class="kpi-val ${rErr>0?'val-bad':''}">${rErr}</div><div class="kpi-label">ミス数</div></div>
       </div>
-      <div style="font-size:.82rem;color:#64748b;text-align:center;margin-bottom:10px;">片手レシーブ成功率：<strong>${pct(rOne,rOne+rGood+rPfct)}</strong></div>
+      <div style="font-size:.82rem;color:#64748b;text-align:center;margin-bottom:10px;">相手コート返球率：<strong>${pct(rOne,rcv.length)}</strong></div>
       <div class="card-title">種類別内訳</div>
       <div class="table-wrap"><table class="stats-table">
         <tr><th>種類</th><th>本数</th><th>成功</th><th>成功率</th></tr>

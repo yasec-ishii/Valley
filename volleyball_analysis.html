@@ -525,11 +525,11 @@ const RESULT_LABELS = {
   kill:'決定', out:'アウト', net:'ネット', blocked:'被ブロック',
   disrupted:'崩した', normal_spike:'普通（つながれた）',
   ace:'サービスポイント', serve_error:'サーブミス', effective:'崩した(サーブ)', normal:'普通(サーブ)',
-  perfect:'セッター返球', good:'成功', one_hand:'相手コート返球', receive_error:'ミス',
+  perfect:'セッター返球', good:'成功', one_hand:'相手コート返球', receive_error:'ミス', judge_rcv:'ジャッジミス',
   shutout:'シャットアウト', touch:'ワンタッチ', block_error:'ブロックミス',
   serve_err:'サーブミス', spike_err:'スパイクミス', recv_err:'レシーブミス',
   conn_err:'連携ミス', collision:'お見合い', no_follow:'ブロックフォロー不足',
-  free_ball:'フリーボールミス', other:'その他', win:'勝利', loss_end:'失点'
+  free_ball:'フリーボールミス', judge_miss:'ジャッジミス', other:'その他', win:'勝利', loss_end:'失点'
 };
 const DIR_LABELS    = { cross:'クロス', straight:'ストレート', feint:'フェイント', push:'プッシュ' };
 const RECV_TYPE_LABELS = { serve_cut:'サーブカット', spike_cut:'スパイクカット', chance_ball:'チャンスボール', feint:'フェイント処理' };
@@ -698,6 +698,7 @@ function buildReceiveModal() {
         <button class="sel-btn success-sel" onclick="mRcvResult('good')">✅ 成功（つないだ）</button>
         <button class="sel-btn"             onclick="mRcvResult('one_hand')">↩ 相手コート返球</button>
         <button class="sel-btn danger-sel"  onclick="mRcvResult('receive_error')">❌ ミス</button>
+        <button class="sel-btn danger-sel"  onclick="mRcvResult('judge_rcv')">🚩 ジャッジミス</button>
       </div>`;
   }
   return h;
@@ -745,6 +746,7 @@ function buildLossModal() {
       <button class="sel-btn danger-sel" onclick="mLoss('collision')">💥 お見合い</button>
       <button class="sel-btn danger-sel" onclick="mLoss('no_follow')">🛡 ブロックフォロー不足</button>
       <button class="sel-btn danger-sel" onclick="mLoss('free_ball')">🎾 フリーボールミス</button>
+      <button class="sel-btn danger-sel" onclick="mLoss('judge_miss')">🚩 ジャッジミス</button>
       <button class="sel-btn"            onclick="mLoss('other')">❓ その他</button>
     </div>`;
 }
@@ -896,7 +898,8 @@ function eRcvTypeSec() {
 }
 function eRcvRes() {
   const opts=[['perfect','🎯 セッター返球','success-sel'],['good','✅ 成功','success-sel'],
-    ['one_hand','↩ 相手コート返球',''],['receive_error','❌ ミス','danger-sel']];
+    ['one_hand','↩ 相手コート返球',''],['receive_error','❌ ミス','danger-sel'],
+    ['judge_rcv','🚩 ジャッジミス','danger-sel']];
   return `<div class="modal-step">結果</div><div class="sel-grid sel-grid-2" style="margin-bottom:12px;">
     ${opts.map(([v,l,c])=>`<button class="sel-btn ${c} ${editState.result===v?'selected':''}" onclick="eResult('${v}')">${l}</button>`).join('')}
   </div>`;
@@ -910,7 +913,7 @@ function eBlkRes() {
 function eLossCause() {
   const causes=[['serve_err','🏐 サーブミス'],['spike_err','⚡ スパイクミス'],['recv_err','🙌 レシーブミス'],
     ['conn_err','🔗 連携ミス'],['collision','💥 お見合い'],['no_follow','🛡 ブロックフォロー不足'],
-    ['free_ball','🎾 フリーボールミス'],['other','❓ その他']];
+    ['free_ball','🎾 フリーボールミス'],['judge_miss','🚩 ジャッジミス'],['other','❓ その他']];
   return `<div class="modal-step">失点原因</div><div class="sel-grid sel-grid-2" style="margin-bottom:12px;">
     ${causes.map(([v,l])=>`<button class="sel-btn danger-sel ${editState.cause===v?'selected':''}" onclick="eCause('${v}')">${l}</button>`).join('')}
   </div>`;
@@ -1115,7 +1118,7 @@ function renderCourse(actions,m) {
 // LOSS
 function renderLoss(actions,m) {
   const la=actions.filter(a=>a.type==='loss');
-  const causes={serve_err:'サーブミス',spike_err:'スパイクミス',recv_err:'レシーブミス',conn_err:'連携ミス',collision:'お見合い',no_follow:'ブロックフォロー不足',free_ball:'フリーボールミス',other:'その他'};
+  const causes={serve_err:'サーブミス',spike_err:'スパイクミス',recv_err:'レシーブミス',conn_err:'連携ミス',collision:'お見合い',no_follow:'ブロックフォロー不足',free_ball:'フリーボールミス',judge_miss:'ジャッジミス',other:'その他'};
   const counts={}; Object.keys(causes).forEach(k=>{ counts[k]=la.filter(a=>a.cause===k).length; });
   const sorted=Object.entries(counts).sort((a,b)=>b[1]-a[1]);
   const maxC=Math.max(...Object.values(counts),1);

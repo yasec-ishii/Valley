@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>バレー分析ツール</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <style>
 :root {
   --primary:#1a3a6b; --primary-light:#2a5298; --accent:#f97316;
@@ -185,6 +186,39 @@ button, a, .sel-btn, .action-btn, .player-sel-btn, .nav-btn, .score-btn, .sub-ta
 .kpi-card { background:#fff; border-radius:10px; padding:14px; text-align:center; box-shadow:0 1px 4px rgba(0,0,0,.07); }
 .kpi-val   { font-size:2rem; font-weight:800; color:var(--primary); line-height:1; }
 .kpi-label { font-size:.72rem; color:var(--text-light); margin-top:4px; }
+
+/* REPORT */
+.rpt-overlay { display:none; position:fixed; inset:0; background:#f1f5f9; z-index:800; overflow-y:auto; -webkit-overflow-scrolling:touch; }
+.rpt-body    { max-width:680px; margin:0 auto; padding:16px 16px 100px; }
+.rpt-actions { position:fixed; bottom:0; left:0; right:0; background:#fff; border-top:1.5px solid #e2e8f0; padding:10px 16px calc(10px + env(safe-area-inset-bottom)); display:flex; gap:8px; z-index:810; }
+.rpt-actions button { flex:1; touch-action:manipulation; cursor:pointer; }
+.rpt-h1    { background:var(--primary); color:#fff; border-radius:10px; padding:14px 16px; margin-bottom:12px; }
+.rpt-h1 .rtitle { font-size:1.1rem; font-weight:800; }
+.rpt-h1 .rsub   { font-size:.78rem; opacity:.8; margin-top:3px; }
+.rpt-card  { background:#fff; border-radius:10px; padding:14px; margin-bottom:10px; box-shadow:0 1px 3px rgba(0,0,0,.08); }
+.rpt-card-title { font-size:.8rem; font-weight:800; color:var(--text-light); text-transform:uppercase; letter-spacing:.05em; margin-bottom:10px; }
+.rpt-table { width:100%; border-collapse:collapse; font-size:.78rem; }
+.rpt-table th { background:var(--primary); color:#fff; padding:7px 5px; text-align:center; font-size:.72rem; white-space:nowrap; }
+.rpt-table td { padding:7px 5px; text-align:center; border-bottom:1px solid #f1f5f9; }
+.rpt-table tr:last-child td { border-bottom:none; }
+.rpt-table td.tl { text-align:left; font-weight:600; }
+.rpt-kpi-row { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; margin-bottom:10px; }
+.rpt-kpi { background:#f8fafc; border-radius:7px; padding:10px 4px; text-align:center; }
+.rpt-kpi .rv { font-size:1.4rem; font-weight:800; color:var(--primary); line-height:1; }
+.rpt-kpi .rl { font-size:.62rem; color:var(--text-light); margin-top:3px; }
+.rpt-img-wrap { display:none; position:fixed; inset:0; background:rgba(0,0,0,.85); z-index:900; align-items:center; justify-content:center; flex-direction:column; padding:16px; }
+.rpt-img-wrap.show { display:flex; }
+.rpt-img-wrap img { max-width:100%; max-height:80vh; border-radius:8px; }
+.rpt-img-hint { color:#fff; font-size:.85rem; margin-top:12px; text-align:center; }
+
+/* PRINT */
+@media print {
+  .header,.nav,.modal-overlay,.rpt-actions,.toast { display:none !important; }
+  body { padding:0 !important; background:#fff !important; }
+  .rpt-overlay { position:static !important; overflow:visible !important; background:#fff !important; }
+  .rpt-body { padding:8px !important; }
+  .rpt-card { box-shadow:none !important; border:1px solid #e2e8f0; }
+}
 </style>
 </head>
 <body>
@@ -227,6 +261,7 @@ button, a, .sel-btn, .action-btn, .player-sel-btn, .nav-btn, .score-btn, .sub-ta
 
 <!-- 分析 -->
 <div class="page" id="page-analysis">
+  <button class="btn btn-accent btn-block" style="margin-bottom:12px;" onclick="generateReport()">📄 試合レポートを作成</button>
   <div class="sub-tabs" id="analysisTabs">
     <button class="sub-tab active" onclick="showAnalysis('individual')">👤 個人成績</button>
     <button class="sub-tab" onclick="showAnalysis('team')">🏆 チーム</button>
@@ -235,6 +270,22 @@ button, a, .sel-btn, .action-btn, .player-sel-btn, .nav-btn, .score-btn, .sub-ta
     <button class="sub-tab" onclick="showAnalysis('rally')">🔄 ラリー</button>
   </div>
   <div id="analysisContent"></div>
+</div>
+
+<!-- REPORT OVERLAY -->
+<div class="rpt-overlay" id="rptOverlay">
+  <div class="rpt-body" id="rptBody"></div>
+  <div class="rpt-actions">
+    <button class="btn btn-primary" onclick="printReport()">🖨 印刷 / PDF</button>
+    <button class="btn btn-success" onclick="captureImage()">📷 画像保存</button>
+    <button class="btn btn-outline" onclick="closeReport()">✕ 閉じる</button>
+  </div>
+</div>
+
+<!-- IMAGE PREVIEW -->
+<div class="rpt-img-wrap" id="rptImgWrap" onclick="this.classList.remove('show')">
+  <img id="rptImg" src="" alt="レポート画像">
+  <p class="rpt-img-hint">📱 長押しで画像を保存　/ 💻 右クリックで保存<br><span style="font-size:.75rem;opacity:.7;">タップで閉じる</span></p>
 </div>
 
 <!-- 選手管理 -->
@@ -1140,6 +1191,159 @@ function showToast(msg) {
   const el=document.getElementById('toast');
   el.textContent=msg; el.classList.add('show');
   clearTimeout(toastTimer); toastTimer=setTimeout(()=>el.classList.remove('show'),2200);
+}
+
+// =================================================
+//  REPORT
+// =================================================
+function generateReport() {
+  const m=getCurrentMatch();
+  if(!m){ showToast('先に試合を選択してください'); return; }
+  const all=m.sets.flatMap(s=>s.actions.map(a=>({...a,setNum:s.setNum})));
+  const totalMy=m.sets.reduce((a,s)=>a+s.myScore,0);
+  const totalOp=m.sets.reduce((a,s)=>a+s.opScore,0);
+  const result=totalMy>totalOp?'勝利':'敗戦';
+  const resultColor=totalMy>totalOp?'#16a34a':'#dc2626';
+
+  // --- SET SCORE TABLE ---
+  const setRows=m.sets.map(s=>`<tr>
+    <td>第${s.setNum}セット</td>
+    <td style="font-weight:800;color:#1a3a6b;">${s.myScore}</td>
+    <td>${s.opScore}</td>
+    <td>${s.myScore>s.opScore?'<span style="color:#16a34a;font-weight:700;">○</span>':'<span style="color:#dc2626;font-weight:700;">✕</span>'}</td>
+  </tr>`).join('');
+
+  // --- INDIVIDUAL STATS ---
+  const sortedPlayers=[...db.players].sort((a,b)=>a.number-b.number);
+  const playerRows=sortedPlayers.map(p=>{
+    const pa=all.filter(a=>a.playerId===p.id);
+    const spk=pa.filter(a=>a.type==='spike');
+    const kills=spk.filter(a=>a.result==='kill').length;
+    const spkErr=spk.filter(a=>a.result==='out'||a.result==='net').length;
+    const srv=pa.filter(a=>a.type==='serve');
+    const aces=srv.filter(a=>a.result==='ace').length;
+    const srvErr=srv.filter(a=>a.result==='serve_error').length;
+    const rcv=pa.filter(a=>a.type==='receive');
+    const rPfct=rcv.filter(a=>a.result==='perfect').length;
+    const rGood=rcv.filter(a=>a.result==='good').length;
+    const rErr=rcv.filter(a=>a.result==='receive_error').length;
+    const blk=pa.filter(a=>a.type==='block');
+    const bSht=blk.filter(a=>a.result==='shutout').length;
+    const killPct=spk.length?Math.round(kills/spk.length*100)+'%':'—';
+    const rcvPct=rcv.length?Math.round((rPfct+rGood)/rcv.length*100)+'%':'—';
+    return `<tr>
+      <td class="tl">${p.number}. ${p.name}</td>
+      <td>${kills}/${spk.length}</td><td>${killPct}</td>
+      <td>${aces}</td><td>${srvErr}</td>
+      <td>${rcvPct}</td><td>${rErr}</td>
+      <td>${bSht}</td>
+    </tr>`;
+  }).join('');
+
+  // --- TEAM STATS ---
+  const kills=all.filter(a=>a.type==='spike'&&a.result==='kill').length;
+  const aces=all.filter(a=>a.type==='serve'&&a.result==='ace').length;
+  const shuts=all.filter(a=>a.type==='block'&&a.result==='shutout').length;
+  const totalSpk=all.filter(a=>a.type==='spike').length;
+  const totalRcv=all.filter(a=>a.type==='receive').length;
+  const rcvOK=all.filter(a=>a.type==='receive'&&(a.result==='perfect'||a.result==='good')).length;
+  const srvErr=all.filter(a=>a.type==='serve'&&a.result==='serve_error').length;
+
+  // --- LOSS ---
+  const la=all.filter(a=>a.type==='loss');
+  const lcauses={serve_err:'サーブミス',spike_err:'スパイクミス',recv_err:'レシーブミス',conn_err:'連携ミス',collision:'お見合い',no_follow:'ブロックフォロー不足',free_ball:'フリーボールミス',other:'その他'};
+  const lossRows=Object.entries(lcauses).map(([k,l])=>{
+    const c=la.filter(a=>a.cause===k).length;
+    return c>0?`<tr><td class="tl">${l}</td><td style="font-weight:700;color:#dc2626;">${c}</td><td>${la.length?Math.round(c/la.length*100)+'%':'—'}</td></tr>`:'';
+  }).join('');
+
+  const now=new Date();
+  const nowStr=`${now.getFullYear()}/${now.getMonth()+1}/${now.getDate()}`;
+
+  document.getElementById('rptBody').innerHTML=`
+    <div class="rpt-h1">
+      <div class="rtitle">🏐 vs ${m.opponent} 試合レポート</div>
+      <div class="rsub">${formatDate(m.date)} ／ 出力日：${nowStr}</div>
+      <div style="margin-top:8px;font-size:1.5rem;font-weight:800;color:${resultColor};">${result} ${totalMy}–${totalOp}</div>
+    </div>
+
+    <div class="rpt-card">
+      <div class="rpt-card-title">チーム総合</div>
+      <div class="rpt-kpi-row">
+        <div class="rpt-kpi"><div class="rv">${kills}</div><div class="rl">スパイク決定</div></div>
+        <div class="rpt-kpi"><div class="rv">${aces}</div><div class="rl">サービスPT</div></div>
+        <div class="rpt-kpi"><div class="rv">${shuts}</div><div class="rl">ブロックPT</div></div>
+        <div class="rpt-kpi"><div class="rv">${la.length}</div><div class="rl">失点（記録）</div></div>
+      </div>
+      <div class="rpt-kpi-row">
+        <div class="rpt-kpi"><div class="rv">${totalSpk?Math.round(kills/totalSpk*100)+'%':'—'}</div><div class="rl">スパイク決定率</div></div>
+        <div class="rpt-kpi"><div class="rv">${totalRcv?Math.round(rcvOK/totalRcv*100)+'%':'—'}</div><div class="rl">レシーブ成功率</div></div>
+        <div class="rpt-kpi"><div class="rv">${srvErr}</div><div class="rl">サーブミス</div></div>
+        <div class="rpt-kpi"><div class="rv">${m.sets.length}</div><div class="rl">セット数</div></div>
+      </div>
+    </div>
+
+    <div class="rpt-card">
+      <div class="rpt-card-title">セット別スコア</div>
+      <div style="overflow-x:auto;"><table class="rpt-table">
+        <tr><th>セット</th><th>自チーム</th><th>相手</th><th>結果</th></tr>
+        ${setRows}
+        <tr style="background:#f1f5f9;font-weight:700;"><td>合計</td><td>${totalMy}</td><td>${totalOp}</td><td style="color:${resultColor};">${result}</td></tr>
+      </table></div>
+    </div>
+
+    <div class="rpt-card">
+      <div class="rpt-card-title">個人成績</div>
+      <div style="overflow-x:auto;"><table class="rpt-table">
+        <tr><th>選手</th><th>決定/打</th><th>決定率</th><th>ACE</th><th>サーブ<br>ミス</th><th>レシーブ<br>成功率</th><th>レシーブ<br>ミス</th><th>ブロック<br>PT</th></tr>
+        ${playerRows||'<tr><td colspan="8" style="color:#94a3b8;">データなし</td></tr>'}
+      </table></div>
+    </div>
+
+    <div class="rpt-card">
+      <div class="rpt-card-title">失点分析</div>
+      ${la.length?`<div style="overflow-x:auto;"><table class="rpt-table">
+        <tr><th>原因</th><th>回数</th><th>割合</th></tr>
+        ${lossRows||'<tr><td colspan="3">データなし</td></tr>'}
+      </table></div>`:'<p style="color:#94a3b8;font-size:.82rem;">失点記録がありません</p>'}
+    </div>`;
+
+  document.getElementById('rptOverlay').style.display='block';
+  document.body.style.overflow='hidden';
+}
+
+function closeReport() {
+  document.getElementById('rptOverlay').style.display='none';
+  document.body.style.overflow='';
+}
+
+function printReport() {
+  // 印刷前にrptOverlayを表示状態のままにしてwindow.print()
+  window.print();
+}
+
+function captureImage() {
+  showToast('画像を生成中...');
+  const el=document.getElementById('rptBody');
+  const opts={ scale:2, useCORS:true, backgroundColor:'#f1f5f9', scrollY:-window.scrollY };
+  if(typeof html2canvas==='undefined'){
+    showToast('ネット接続が必要です（html2canvas）'); return;
+  }
+  html2canvas(el, opts).then(canvas=>{
+    const dataUrl=canvas.toDataURL('image/png');
+    // デスクトップ: ダウンロード
+    const ua=navigator.userAgent;
+    const isMobile=/iPhone|iPad|Android/i.test(ua);
+    if(!isMobile){
+      const a=document.createElement('a');
+      a.href=dataUrl; a.download='volleyball_report.png'; a.click();
+      showToast('画像を保存しました');
+    } else {
+      // スマホ: 画像を全画面表示して長押し保存を促す
+      document.getElementById('rptImg').src=dataUrl;
+      document.getElementById('rptImgWrap').classList.add('show');
+    }
+  }).catch(()=>showToast('画像生成に失敗しました'));
 }
 
 // =================================================

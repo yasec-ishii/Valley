@@ -63,7 +63,8 @@ button, a, .sel-btn, .action-btn, .player-sel-btn, .nav-btn, .score-btn, .sub-ta
 .ab-receive { background:linear-gradient(135deg,#16a34a,#15803d); }
 .ab-block   { background:linear-gradient(135deg,#7c3aed,#6d28d9); }
 .ab-loss    { background:linear-gradient(135deg,#dc2626,#b91c1c); }
-.ab-other   { background:linear-gradient(135deg,#64748b,#475569); }
+.ab-other    { background:linear-gradient(135deg,#64748b,#475569); }
+.ab-oppmiss  { background:linear-gradient(135deg,#b45309,#92400e); }
 
 /* SCOREBOARD */
 .scoreboard { background:var(--primary); color:#fff; border-radius:var(--radius); padding:16px; margin-bottom:14px; }
@@ -84,6 +85,7 @@ button, a, .sel-btn, .action-btn, .player-sel-btn, .nav-btn, .score-btn, .sub-ta
 .log-badge { padding:3px 8px; border-radius:20px; font-size:.7rem; font-weight:700; color:#fff; white-space:nowrap; }
 .badge-spike{background:#e11d48} .badge-serve{background:#0284c7} .badge-receive{background:#16a34a}
 .badge-block{background:#7c3aed} .badge-loss{background:#dc2626}  .badge-other{background:#64748b}
+.badge-oppmiss{background:#b45309}
 .log-detail { flex:1; color:var(--text); }
 .log-time { color:var(--text-light); font-size:.72rem; white-space:nowrap; }
 .log-del  { background:none; border:none; color:var(--text-light); font-size:1rem; padding:4px 5px; }
@@ -244,7 +246,7 @@ button, a, .sel-btn, .action-btn, .player-sel-btn, .nav-btn, .score-btn, .sub-ta
       <button class="action-btn ab-receive" onclick="openModal('receive')"><span class="action-icon">🙌</span>レシーブ</button>
       <button class="action-btn ab-block"   onclick="openModal('block')"><span class="action-icon">🛡️</span>ブロック</button>
       <button class="action-btn ab-loss"    onclick="openModal('loss')"><span class="action-icon">❌</span>失点</button>
-      <button class="action-btn ab-other"   onclick="openModal('rally')"><span class="action-icon">🔄</span>ラリー</button>
+      <button class="action-btn ab-oppmiss" onclick="openModal('oppmiss')"><span class="action-icon">🙈</span>相手ミス</button>
     </div>
     <div style="display:flex;gap:8px;">
       <button class="btn btn-outline btn-sm" style="flex:1" onclick="openModal('newscore')">📊 スコア修正</button>
@@ -520,7 +522,7 @@ function endSet() {
 // =================================================
 //  LABELS
 // =================================================
-const ACTION_LABELS = { spike:'スパイク', serve:'サーブ', receive:'レシーブ', block:'ブロック', loss:'失点', rally:'ラリー' };
+const ACTION_LABELS = { spike:'スパイク', serve:'サーブ', receive:'レシーブ', block:'ブロック', loss:'失点', oppmiss:'相手ミス', rally:'ラリー' };
 const RESULT_LABELS = {
   kill:'決定', out:'アウト', net:'ネット', blocked:'被ブロック',
   disrupted:'崩した', normal_spike:'普通（つながれた）',
@@ -529,7 +531,8 @@ const RESULT_LABELS = {
   shutout:'シャットアウト', touch:'ワンタッチ', block_error:'ブロックミス',
   serve_err:'サーブミス', spike_err:'スパイクミス', recv_err:'レシーブミス',
   conn_err:'連携ミス', collision:'お見合い', no_follow:'ブロックフォロー不足',
-  free_ball:'フリーボールミス', judge_miss:'ジャッジミス', other:'その他', win:'勝利', loss_end:'失点'
+  free_ball:'フリーボールミス', judge_miss:'ジャッジミス', other:'その他', win:'勝利', loss_end:'失点',
+  opp_spike:'スパイクミス', opp_serve:'サーブミス', opp_other:'その他'
 };
 const DIR_LABELS    = { cross:'クロス', straight:'ストレート', feint:'フェイント', push:'プッシュ' };
 const RECV_TYPE_LABELS = { serve_cut:'サーブカット', spike_cut:'スパイクカット', chance_ball:'チャンスボール', feint:'フェイント処理' };
@@ -543,8 +546,9 @@ function formatAction(a) {
   const result=RESULT_LABELS[a.result]||a.result||'';
   const dir=a.direction?` [${DIR_LABELS[a.direction]||a.direction}]`:'';
   const tgt=a.target?` →${a.target}番`:'';
-  if(a.type==='loss')   return `${RESULT_LABELS[a.cause]||a.cause||'失点'}${player?' ('+pname+')':''}`;
-  if(a.type==='rally')  return `${a.steps?a.steps.length+'アクション':''}→${RESULT_LABELS[a.endResult]||a.endResult||''}`;
+  if(a.type==='loss')    return `${RESULT_LABELS[a.cause]||a.cause||'失点'}${player?' ('+pname+')':''}`;
+  if(a.type==='oppmiss') return `相手の${RESULT_LABELS[a.cause]||a.cause||'ミス'} → 自チーム＋1`;
+  if(a.type==='rally')   return `${a.steps?a.steps.length+'アクション':''}→${RESULT_LABELS[a.endResult]||a.endResult||''}`;
   if(a.type==='receive'){
     const tl=a.recvType?`[${RECV_TYPE_LABELS[a.recvType]||a.recvType}] `:'';
     return `${pname}：${tl}${result}`;
@@ -593,6 +597,7 @@ function renderModal() {
   else if(t==='receive') mc.innerHTML=buildReceiveModal();
   else if(t==='block')   mc.innerHTML=buildBlockModal();
   else if(t==='loss')    mc.innerHTML=buildLossModal();
+  else if(t==='oppmiss') mc.innerHTML=buildOppMissModal();
   else if(t==='rally')   mc.innerHTML=buildRallyModal();
   else if(t==='newscore')mc.innerHTML=buildScoreModal();
   else if(t==='edit')    mc.innerHTML=buildEditModalContent();
@@ -638,8 +643,11 @@ function buildSpikeModal() {
 function mSpkPlayer(id){ modalState.playerId=id; renderModal(); }
 function mSpkResult(r) { modalState.result=r;   renderModal(); }
 function mSpkDir(dir)  {
-  if(addAction({type:'spike',playerId:modalState.playerId,result:modalState.result,direction:dir})){
-    renderLog(); showToast('スパイクを記録しました'); closeModal();
+  const r=modalState.result;
+  if(addAction({type:'spike',playerId:modalState.playerId,result:r,direction:dir})){
+    if(r==='kill') addScore('my',1);
+    else if(r==='out'||r==='net'||r==='blocked') addScore('op',1);
+    renderLog(); renderScoreboard(); showToast('スパイクを記録しました'); closeModal();
   }
 }
 
@@ -671,8 +679,11 @@ function buildServeModal() {
 function mSrvPlayer(id){ modalState.playerId=id; renderModal(); }
 function mSrvResult(r) { modalState.result=r;   renderModal(); }
 function mSrvTarget(t) {
-  if(addAction({type:'serve',playerId:modalState.playerId,result:modalState.result,target:t||null})){
-    renderLog(); showToast('サーブを記録しました'); closeModal();
+  const r=modalState.result;
+  if(addAction({type:'serve',playerId:modalState.playerId,result:r,target:t||null})){
+    if(r==='ace') addScore('my',1);
+    else if(r==='serve_error') addScore('op',1);
+    renderLog(); renderScoreboard(); showToast('サーブを記録しました'); closeModal();
   }
 }
 
@@ -707,7 +718,8 @@ function mRcvPlayer(id){ modalState.playerId=id; renderModal(); }
 function mRcvType(t)   { modalState.recvType=t;  renderModal(); }
 function mRcvResult(r) {
   if(addAction({type:'receive',playerId:modalState.playerId,result:r,recvType:modalState.recvType||null})){
-    renderLog(); showToast('レシーブを記録しました'); closeModal();
+    if(r==='receive_error'||r==='judge_rcv') addScore('op',1);
+    renderLog(); renderScoreboard(); showToast('レシーブを記録しました'); closeModal();
   }
 }
 
@@ -730,7 +742,9 @@ function buildBlockModal() {
 function mBlkPlayer(id){ modalState.playerId=id; renderModal(); }
 function mBlkResult(r) {
   if(addAction({type:'block',playerId:modalState.playerId,result:r})){
-    renderLog(); showToast('ブロックを記録しました'); closeModal();
+    if(r==='shutout') addScore('my',1);
+    else if(r==='block_error') addScore('op',1);
+    renderLog(); renderScoreboard(); showToast('ブロックを記録しました'); closeModal();
   }
 }
 
@@ -752,6 +766,23 @@ function buildLossModal() {
 }
 function mLoss(cause) {
   if(addAction({type:'loss',cause})){ renderLog(); addScore('op',1); showToast('失点を記録しました'); closeModal(); }
+}
+
+// ---- OPP MISS ----
+function buildOppMissModal() {
+  return `<div class="modal-title">🙈 相手ミス記録</div>
+    <div class="modal-step">相手のミスの種類を選択してください<br><span style="font-size:.75rem;color:#94a3b8;">→ 自チームの得点が自動で＋1されます</span></div>
+    <div class="sel-grid sel-grid-3">
+      <button class="sel-btn success-sel" onclick="mOppMiss('opp_spike')">⚡ スパイクミス</button>
+      <button class="sel-btn success-sel" onclick="mOppMiss('opp_serve')">🏐 サーブミス</button>
+      <button class="sel-btn success-sel" onclick="mOppMiss('opp_other')">❓ その他</button>
+    </div>`;
+}
+function mOppMiss(cause) {
+  if(addAction({type:'oppmiss',cause})){
+    addScore('my',1);
+    renderLog(); renderScoreboard(); showToast('相手ミスを記録 → 自チーム＋1'); closeModal();
+  }
 }
 
 // ---- RALLY ----

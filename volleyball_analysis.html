@@ -86,6 +86,18 @@ button, a, .sel-btn, .action-btn, .player-sel-btn, .nav-btn, .score-btn, .sub-ta
 .badge-spike{background:#e11d48} .badge-serve{background:#0284c7} .badge-receive{background:#16a34a}
 .badge-block{background:#7c3aed} .badge-loss{background:#dc2626}  .badge-other{background:#64748b}
 .badge-oppmiss{background:#b45309}
+.match-format-badge { display:inline-block; font-size:.68rem; font-weight:700; padding:2px 7px; border-radius:10px; margin-left:6px; }
+.fmt-3set { background:#dbeafe; color:#1d4ed8; }
+.fmt-2set { background:#ede9fe; color:#6d28d9; }
+.fmt-tm   { background:#dcfce7; color:#15803d; }
+.match-status-fin { font-size:.68rem; font-weight:700; color:#dc2626; margin-left:6px; }
+.set-result-row { display:flex; gap:6px; justify-content:center; flex-wrap:wrap; margin-top:6px; }
+.set-result-chip { font-size:.75rem; font-weight:700; padding:3px 8px; border-radius:12px; }
+.src-win  { background:rgba(22,163,74,.25); color:#fff; }
+.src-lose { background:rgba(220,38,38,.25); color:#fff; }
+.src-cur  { background:rgba(255,255,255,.2); color:#fff; border:1.5px solid rgba(255,255,255,.6); }
+.set-filter-btn { padding:5px 12px; border-radius:16px; border:2px solid var(--border); background:#fff; font-size:.75rem; font-weight:700; white-space:nowrap; color:var(--text-light); touch-action:manipulation; cursor:pointer; }
+.set-filter-btn.active { background:var(--primary); color:#fff; border-color:var(--primary); }
 .log-detail { flex:1; color:var(--text); }
 .log-time { color:var(--text-light); font-size:.72rem; white-space:nowrap; }
 .log-del  { background:none; border:none; color:var(--text-light); font-size:1rem; padding:4px 5px; }
@@ -251,6 +263,7 @@ button, a, .sel-btn, .action-btn, .player-sel-btn, .nav-btn, .score-btn, .sub-ta
     <div style="display:flex;gap:8px;">
       <button class="btn btn-outline btn-sm" style="flex:1" onclick="openModal('newscore')">📊 スコア修正</button>
       <button class="btn btn-sm" style="flex:1;background:#fff7ed;color:#ea580c;border:2px solid #fed7aa;" onclick="endSet()">セット終了</button>
+      <button class="btn btn-sm" style="flex:1;background:#fef2f2;color:#dc2626;border:2px solid #fecaca;" onclick="endMatch()">🏁 試合終了</button>
     </div>
   </div>
   <div class="card">
@@ -264,6 +277,7 @@ button, a, .sel-btn, .action-btn, .player-sel-btn, .nav-btn, .score-btn, .sub-ta
 <!-- 分析 -->
 <div class="page" id="page-analysis">
   <button class="btn btn-accent btn-block" style="margin-bottom:12px;" onclick="generateReport()">📄 試合レポートを作成</button>
+  <div id="setFilterWrap" style="display:flex;gap:6px;overflow-x:auto;padding-bottom:4px;margin-bottom:8px;scrollbar-width:none;"></div>
   <div class="sub-tabs" id="analysisTabs">
     <button class="sub-tab active" onclick="showAnalysis('individual')">👤 個人成績</button>
     <button class="sub-tab" onclick="showAnalysis('team')">🏆 チーム</button>
@@ -338,6 +352,14 @@ button, a, .sel-btn, .action-btn, .player-sel-btn, .nav-btn, .score-btn, .sub-ta
     <div class="form-group">
       <label class="form-label">試合日</label>
       <input class="form-input" type="date" id="newMatchDate">
+    </div>
+    <div class="form-group">
+      <label class="form-label">試合形式</label>
+      <select class="form-input" id="newMatchFormat">
+        <option value="3set">🏆 公式 3セットマッチ（2セット先取・各21点）</option>
+        <option value="2set">🏆 公式 2セットマッチ（各21点）</option>
+        <option value="tm">🔄 TM（練習試合・自由）</option>
+      </select>
     </div>
     <button class="btn btn-primary btn-block" onclick="createMatch()">🆕 試合を作成</button>
   </div>
@@ -435,12 +457,18 @@ function renderPlayerList() {
 // =================================================
 //  MATCHES
 // =================================================
+const FORMAT_LABELS = { '3set':'3セットマッチ', '2set':'2セットマッチ', 'tm':'TM' };
+const FORMAT_MAX_SETS = { '3set':3, '2set':2, 'tm':99 };
+const FORMAT_WIN_SETS = { '3set':2, '2set':2, 'tm':99 };
+function getFormatLabel(f){ return FORMAT_LABELS[f]||'TM'; }
+
 function createMatch() {
   const opp=document.getElementById('newMatchOpp').value.trim();
   const date=document.getElementById('newMatchDate').value;
+  const format=document.getElementById('newMatchFormat').value||'tm';
   if(!opp){ showToast('相手チーム名を入力してください'); return; }
   if(!date){ showToast('試合日を入力してください'); return; }
-  const m={id:uuid(),opponent:opp,date,sets:[]};
+  const m={id:uuid(),opponent:opp,date,format,status:'active',sets:[]};
   db.matches.unshift(m); db.currentMatchId=m.id; db.currentSetNumber=1;
   ensureSet(); saveDB();
   document.getElementById('newMatchOpp').value='';
@@ -469,11 +497,27 @@ function renderMatchList() {
     const ia=m.id===db.currentMatchId;
     const ty=m.sets.reduce((a,s)=>a+s.myScore,0);
     const to=m.sets.reduce((a,s)=>a+s.opScore,0);
+    const fmt=m.format||'tm';
+    const fmtCls={'3set':'fmt-3set','2set':'fmt-2set','tm':'fmt-tm'}[fmt]||'fmt-tm';
+    // セット勝敗計算
+    const finSets=m.status==='finished'?m.sets:m.sets.filter((s,i,arr)=>s.setNum<Math.max(...arr.map(x=>x.setNum)));
+    let myW=0,opW=0; finSets.forEach(s=>{ if(s.myScore>s.opScore) myW++; else if(s.opScore>s.myScore) opW++; });
+    const resultLabel=m.status==='finished'?(myW>opW?'🏆 勝利':opW>myW?'敗戦':'引き分け'):'進行中';
+    const resultColor=m.status==='finished'?(myW>opW?'#16a34a':opW>myW?'#dc2626':'#64748b'):'#d97706';
     return `<div class="match-item ${ia?'active-match':''}" onclick="selectMatch('${m.id}')">
-      <div class="mdate">${formatDate(m.date)}</div>
-      <div class="mopp">${ia?'▶ ':''}vs ${m.opponent}</div>
-      <div class="mscore">総得点 ${ty}–${to} (${m.sets.length}セット)</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+        <div class="mdate">${formatDate(m.date)}</div>
+        <span class="match-format-badge ${fmtCls}">${getFormatLabel(fmt)}</span>
+      </div>
+      <div class="mopp">${ia?'▶ ':''}vs ${m.opponent}
+        <span style="font-size:.75rem;font-weight:700;color:${resultColor};margin-left:8px;">${resultLabel}</span>
+      </div>
+      <div class="mscore">
+        総得点 ${ty}–${to}（${m.sets.length}セット）
+        ${m.status==='finished'&&fmt!=='tm'?`　セット ${myW}–${opW}`:''}
+      </div>
       <div style="display:flex;justify-content:flex-end;margin-top:6px;">
+        ${m.status!=='finished'?`<button class="btn btn-sm" style="background:#fef2f2;color:#dc2626;border:1px solid #fecaca;margin-right:6px;" onclick="event.stopPropagation();db.currentMatchId='${m.id}';endMatch()">🏁 終了</button>`:''}
         <button class="btn btn-sm btn-danger" onclick="event.stopPropagation();deleteMatch('${m.id}')">削除</button>
       </div>
     </div>`;
@@ -488,23 +532,51 @@ function formatDate(d) {
 // =================================================
 //  SCOREBOARD
 // =================================================
+function getSetWins(m) {
+  if(!m) return {my:0,op:0};
+  let my=0,op=0;
+  const completed=m.sets.filter(s=>s.setNum<db.currentSetNumber||(m.status==='finished'));
+  completed.forEach(s=>{ if(s.myScore>s.opScore) my++; else if(s.opScore>s.myScore) op++; });
+  return {my,op};
+}
 function renderScoreboard() {
   const m=getCurrentMatch(), s=getCurrentSet();
   const my=s?s.myScore:0, op=s?s.opScore:0, opp=m?m.opponent:'—';
+  const fmt=m?m.format:'tm';
+  const wins=getSetWins(m);
+  const finished=m&&m.status==='finished';
+  // セット勝敗チップ
+  let setChips='';
+  if(m&&m.sets.length>0){
+    const allSets=m.status==='finished'?m.sets:m.sets.filter(s=>s.setNum<db.currentSetNumber);
+    setChips=allSets.map(s=>{
+      const w=s.myScore>s.opScore; const l=s.opScore>s.myScore;
+      return `<span class="set-result-chip ${w?'src-win':l?'src-lose':'src-cur'}">第${s.setNum} ${w?'○':l?'✕':'△'} ${s.myScore}-${s.opScore}</span>`;
+    }).join('');
+    if(!finished && m.sets.find(s=>s.setNum===db.currentSetNumber)){
+      setChips+=`<span class="set-result-chip src-cur">第${db.currentSetNumber}セット進行中</span>`;
+    }
+  }
   document.getElementById('scoreboardWrap').innerHTML=`
     <div class="scoreboard">
+      <div style="display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:6px;font-size:.72rem;opacity:.85;">
+        <span>${getFormatLabel(fmt)}</span>
+        ${m&&fmt!=='tm'?`<span>セット ${wins.my}–${wins.op}</span>`:''}
+        ${finished?'<span style="color:#fca5a5;font-weight:700;">🏁 試合終了</span>':''}
+      </div>
       <div class="score-teams">
         <div class="score-team"><div class="score-name">自チーム</div><div class="score-number">${my}</div></div>
         <div class="score-vs">—</div>
         <div class="score-team"><div class="score-name">${opp}</div><div class="score-number">${op}</div></div>
       </div>
-      <div class="score-btns">
+      ${!finished?`<div class="score-btns">
         <button class="score-btn" onclick="addScore('my',-1)">－</button>
         <button class="score-btn" style="background:rgba(255,255,255,.3);" onclick="addScore('my',1)">自 ＋1</button>
         <button class="score-btn" style="background:rgba(255,255,255,.3);" onclick="addScore('op',1)">相手 ＋1</button>
         <button class="score-btn" onclick="addScore('op',-1)">－</button>
-      </div>
-      <div class="set-info">第${db.currentSetNumber}セット${m?' | '+formatDate(m.date):''}</div>
+      </div>`:'<div style="height:8px;"></div>'}
+      ${setChips?`<div class="set-result-row">${setChips}</div>`:''}
+      <div class="set-info">${finished?'試合終了':`第${db.currentSetNumber}セット`}${m?' | '+formatDate(m.date):''}</div>
     </div>`;
 }
 function addScore(side,delta) {
@@ -514,10 +586,43 @@ function addScore(side,delta) {
   saveDB(); renderScoreboard();
 }
 function endSet() {
-  if(!getCurrentMatch()){ showToast('試合を選択してください'); return; }
+  const m=getCurrentMatch(); if(!m){ showToast('試合を選択してください'); return; }
+  if(m.status==='finished'){ showToast('この試合はすでに終了しています'); return; }
   if(!confirm(`第${db.currentSetNumber}セットを終了しますか？`)) return;
+  const s=getCurrentSet();
+  // 自動終了チェック（公式試合）
+  const fmt=m.format||'tm';
+  if(fmt!=='tm'){
+    const wins=getSetWins(m);
+    const myWin=s&&s.myScore>s.opScore?wins.my+1:wins.my;
+    const opWin=s&&s.opScore>s.myScore?wins.op+1:wins.op;
+    const winSets=FORMAT_WIN_SETS[fmt];
+    const maxSets=FORMAT_MAX_SETS[fmt];
+    if(myWin>=winSets||opWin>=winSets||db.currentSetNumber>=maxSets){
+      db.currentSetNumber++; saveDB();
+      const winner=myWin>=winSets?'自チーム':opWin>=winSets?'相手チーム':'引き分け';
+      if(confirm(`セット終了！試合終了の条件を満たしました。\n${winner}の勝利です。\n試合を終了しますか？`)){
+        m.status='finished'; saveDB();
+        renderScoreboard(); renderMatchList(); updateHeader();
+        showToast('試合を終了しました'); return;
+      }
+    }
+  }
   db.currentSetNumber++; ensureSet(); saveDB();
   renderScoreboard(); renderLog(); showToast(`第${db.currentSetNumber}セット開始`);
+}
+function endMatch() {
+  const m=getCurrentMatch(); if(!m){ showToast('試合を選択してください'); return; }
+  if(m.status==='finished'){ showToast('この試合はすでに終了しています'); return; }
+  const wins=getSetWins(m);
+  const s=getCurrentSet();
+  const curMyW=s&&s.myScore>s.opScore?wins.my+1:wins.my;
+  const curOpW=s&&s.opScore>s.myScore?wins.op+1:wins.op;
+  const winMsg=curMyW>curOpW?'自チームの勝利':curOpW>curMyW?'相手チームの勝利':'引き分け';
+  if(!confirm(`試合を終了しますか？\nセット数：自 ${curMyW} – 相手 ${curOpW}（${winMsg}）`)) return;
+  m.status='finished'; saveDB();
+  renderScoreboard(); renderMatchList(); updateHeader();
+  showToast('🏁 試合終了！お疲れ様でした');
 }
 
 // =================================================
@@ -973,19 +1078,33 @@ function showAnalysis(view) {
   if(tabs[idx]) tabs[idx].classList.add('active');
   renderAnalysisContent();
 }
+let selectedSetFilter=0; // 0=全セット, N=第Nセット
+function renderSetFilter(m) {
+  const wrap=document.getElementById('setFilterWrap');
+  if(!wrap||!m||m.sets.length<=1){ if(wrap) wrap.innerHTML=''; selectedSetFilter=0; return; }
+  const btns=[{v:0,l:'全セット'},...m.sets.map(s=>({v:s.setNum,l:`第${s.setNum}セット`}))];
+  wrap.innerHTML=btns.map(b=>`<button class="set-filter-btn ${selectedSetFilter===b.v?'active':''}" onclick="setFilterSelect(${b.v})">${b.l}</button>`).join('');
+}
+function setFilterSelect(n){ selectedSetFilter=n; renderSetFilter(getCurrentMatch()); renderAnalysisContent(); }
+
 function renderAnalysisContent() {
   const m=getCurrentMatch();
   if(!m){ document.getElementById('analysisContent').innerHTML=`
     <div class="empty-state"><div class="empty-icon">📊</div><p>試合を選択してください</p>
-    <button class="btn btn-primary" style="margin-top:12px;" onclick="showPage('matches')">試合管理へ</button></div>`; return; }
-  const all=m.sets.flatMap(s=>s.actions.map(a=>({...a,setNum:s.setNum})));
+    <button class="btn btn-primary" style="margin-top:12px;" onclick="showPage('matches')">試合管理へ</button></div>`;
+    const w=document.getElementById('setFilterWrap'); if(w) w.innerHTML='';
+    return; }
+  renderSetFilter(m);
+  const allFull=m.sets.flatMap(s=>s.actions.map(a=>({...a,setNum:s.setNum})));
+  const all=selectedSetFilter===0?allFull:allFull.filter(a=>a.setNum===selectedSetFilter);
+  const mFiltered=selectedSetFilter===0?m:{...m,sets:m.sets.filter(s=>s.setNum===selectedSetFilter)};
   switch(currentAnalysisView){
-    case 'individual': renderIndividual(all,m); break;
-    case 'team':       renderTeam(all,m);       break;
-    case 'course':     renderCourse(all,m);     break;
-    case 'loss':       renderLoss(all,m);       break;
-    case 'rally':      renderRallyAna(all,m);   break;
-    case 'opponent':   renderOpponent(all,m);   break;
+    case 'individual': renderIndividual(all,mFiltered); break;
+    case 'team':       renderTeam(all,mFiltered);       break;
+    case 'course':     renderCourse(all,mFiltered);     break;
+    case 'loss':       renderLoss(all,mFiltered);       break;
+    case 'rally':      renderRallyAna(all,mFiltered);   break;
+    case 'opponent':   renderOpponent(all,mFiltered);   break;
   }
 }
 function pct(n,d)    { if(!d) return '—'; return Math.round(n/d*100)+'%'; }
@@ -1079,40 +1198,204 @@ function selIndPlayer(id){ window._indSelId=id; renderAnalysisContent(); }
 function renderTeam(actions,m) {
   const totalMy=m.sets.reduce((a,s)=>a+s.myScore,0);
   const totalOp=m.sets.reduce((a,s)=>a+s.opScore,0);
-  const kills=actions.filter(a=>a.type==='spike'&&a.result==='kill').length;
-  const aces=actions.filter(a=>a.type==='serve'&&a.result==='ace').length;
-  const shuts=actions.filter(a=>a.type==='block'&&a.result==='shutout').length;
-  const other=Math.max(0,totalMy-kills-aces-shuts);
-  const total=kills+aces+shuts+other||1;
-  const pieData=[{l:'スパイク得点',v:kills,c:'#e11d48'},{l:'サーブ得点',v:aces,c:'#0284c7'},{l:'ブロック得点',v:shuts,c:'#7c3aed'},{l:'相手ミス等',v:other,c:'#16a34a'}];
+
+  // ── スパイク ──
+  const spk=actions.filter(a=>a.type==='spike');
+  const spkKill  =spk.filter(a=>a.result==='kill').length;
+  const spkOT    =spk.filter(a=>a.result==='one_touch').length;
+  const spkDis   =spk.filter(a=>a.result==='disrupted').length;
+  const spkNrm   =spk.filter(a=>a.result==='normal_spike').length;
+  const spkOut   =spk.filter(a=>a.result==='out').length;
+  const spkNet   =spk.filter(a=>a.result==='net').length;
+  const spkBlk   =spk.filter(a=>a.result==='blocked').length;
+  const spkT     =spk.length||1;
+  const spkKillPct=Math.round(spkKill/spkT*100);
+  const spkErrPct =Math.round((spkOut+spkNet+spkBlk)/spkT*100);
+
+  // ── サーブ ──
+  const srv=actions.filter(a=>a.type==='serve');
+  const srvAce=srv.filter(a=>a.result==='ace').length;
+  const srvErr=srv.filter(a=>a.result==='serve_error').length;
+  const srvEff=srv.filter(a=>a.result==='effective').length;
+  const srvNrm=srv.filter(a=>a.result==='normal').length;
+  const srvT  =srv.length||1;
+  const srvAcePct =Math.round(srvAce/srvT*100);
+  const srvErrPct =Math.round(srvErr/srvT*100);
+  const srvEffPct =Math.round((srvAce+srvEff)/srvT*100);
+
+  // ── レシーブ ──
+  const rcv=actions.filter(a=>a.type==='receive');
+  const rcvPerf=rcv.filter(a=>a.result==='perfect').length;
+  const rcvGood=rcv.filter(a=>a.result==='good').length;
+  const rcvOne =rcv.filter(a=>a.result==='one_hand').length;
+  const rcvErr =rcv.filter(a=>a.result==='receive_error').length;
+  const rcvJdg =rcv.filter(a=>a.result==='judge_rcv').length;
+  const rcvT   =rcv.length||1;
+  const rcvOkPct =Math.round((rcvPerf+rcvGood)/rcvT*100);
+  const rcvErrPct=Math.round((rcvErr+rcvJdg)/rcvT*100);
+  // 種別
+  const rcvSC=rcv.filter(a=>a.recvType==='serve_cut');
+  const rcvSK=rcv.filter(a=>a.recvType==='spike_cut');
+  const rcvCB=rcv.filter(a=>a.recvType==='chance_ball');
+  const rcvFT=rcv.filter(a=>a.recvType==='feint');
+  const rcvTypeOk=r=>r.result==='perfect'||r.result==='good';
+  const rcvTypeRow=(label,arr)=>{
+    const ok=arr.filter(rcvTypeOk).length; const er=arr.filter(a=>a.result==='receive_error'||a.result==='judge_rcv').length;
+    const p=arr.length?Math.round(ok/arr.length*100):null;
+    return `<tr><td>${label}</td><td>${arr.length}</td><td>${ok}</td><td>${er}</td><td class="${p!==null?colorPct(p+'%'):''}">${p!==null?p+'%':'—'}</td></tr>`;
+  };
+
+  // ── ブロック ──
+  const blk=actions.filter(a=>a.type==='block');
+  const blkSh =blk.filter(a=>a.result==='shutout').length;
+  const blkTch=blk.filter(a=>a.result==='touch').length;
+  const blkErr=blk.filter(a=>a.result==='block_error').length;
+  const blkT  =blk.length||1;
+  const blkShPct=Math.round(blkSh/blkT*100);
+
+  // ── 相手ミス ──
+  const om=actions.filter(a=>a.type==='oppmiss');
+  const omSpk=om.filter(a=>a.cause==='opp_spike').length;
+  const omSrv=om.filter(a=>a.cause==='opp_serve').length;
+  const omOth=om.filter(a=>a.cause==='opp_other').length;
+
+  // ── 得点内訳 ──
+  const otherPt=Math.max(0,totalMy-spkKill-srvAce-blkSh-omSpk-omSrv-omOth);
+  const ptTotal=totalMy||1;
+  const pieData=[
+    {l:'スパイク得点',v:spkKill,c:'#e11d48'},
+    {l:'サーブ得点',  v:srvAce, c:'#0284c7'},
+    {l:'ブロック得点',v:blkSh,  c:'#7c3aed'},
+    {l:'相手ミス',    v:omSpk+omSrv+omOth,c:'#16a34a'},
+    {l:'その他',      v:otherPt,c:'#94a3b8'}
+  ].filter(d=>d.v>0);
+  let svgPaths='',angle=-Math.PI/2;
+  pieData.forEach(d=>{ const sw=d.v/ptTotal*Math.PI*2; const x1=50+40*Math.cos(angle),y1=50+40*Math.sin(angle),x2=50+40*Math.cos(angle+sw),y2=50+40*Math.sin(angle+sw); svgPaths+=`<path d="M50,50 L${x1},${y1} A40,40,0,${sw>Math.PI?1:0},1,${x2},${y2} Z" fill="${d.c}" opacity=".9"/>`; angle+=sw; });
+
+  // ── セット別 ──
   const setRows=m.sets.map(s=>{
     const sa=s.actions;
-    return `<tr><td>${s.setNum}セット</td><td>${s.myScore}</td><td>${s.opScore}</td>
-      <td>${sa.filter(a=>a.type==='spike'&&a.result==='kill').length}</td>
-      <td>${sa.filter(a=>a.type==='serve'&&a.result==='ace').length}</td>
-      <td class="${sa.filter(a=>a.type==='serve'&&a.result==='serve_error').length>3?'val-bad':''}">${sa.filter(a=>a.type==='serve'&&a.result==='serve_error').length}</td></tr>`;
+    const sk=sa.filter(a=>a.type==='spike'); const skK=sk.filter(a=>a.result==='kill').length; const skPct=sk.length?Math.round(skK/sk.length*100):0;
+    const sv=sa.filter(a=>a.type==='serve'); const svA=sv.filter(a=>a.result==='ace').length; const svE=sv.filter(a=>a.result==='serve_error').length;
+    const rv=sa.filter(a=>a.type==='receive'); const rvOk=rv.filter(a=>a.result==='perfect'||a.result==='good').length; const rvPct=rv.length?Math.round(rvOk/rv.length*100):0;
+    const ls=sa.filter(a=>a.type==='loss').length;
+    return `<tr>
+      <td>${s.setNum}セット</td><td>${s.myScore}</td><td>${s.opScore}</td>
+      <td>${skK}/${sk.length} <span class="${colorPct(skPct+'%')}">${skPct}%</span></td>
+      <td>${svA}本</td><td class="${svE>3?'val-bad':''}">${svE}本</td>
+      <td><span class="${colorPct(rvPct+'%')}">${rvPct}%</span></td>
+      <td class="${ls>5?'val-bad':''}">${ls}</td>
+    </tr>`;
   }).join('');
+
+  // ── 選手別スパイク決定率 ──
   const playerBar=[...db.players].map(p=>{
-    const ps=actions.filter(a=>a.playerId===p.id&&a.type==='spike');
+    const ps=spk.filter(a=>a.playerId===p.id);
     const k=ps.filter(a=>a.result==='kill').length;
     return {name:`${p.number}.${p.name}`,kills:k,total:ps.length,pct:ps.length?Math.round(k/ps.length*100):0};
-  }).filter(x=>x.total>0).sort((a,b)=>b.kills-a.kills);
-  let svgPaths=''; let angle=-Math.PI/2;
-  pieData.forEach(d=>{ if(!d.v) return; const sw=d.v/total*Math.PI*2; const x1=50+40*Math.cos(angle),y1=50+40*Math.sin(angle),x2=50+40*Math.cos(angle+sw),y2=50+40*Math.sin(angle+sw); svgPaths+=`<path d="M50,50 L${x1},${y1} A40,40,0,${sw>Math.PI?1:0},1,${x2},${y2} Z" fill="${d.c}" opacity=".9"/>`; angle+=sw; });
+  }).filter(x=>x.total>0).sort((a,b)=>b.pct-a.pct);
+
   document.getElementById('analysisContent').innerHTML=`
-    <div class="two-col"><div class="kpi-card"><div class="kpi-val">${totalMy}</div><div class="kpi-label">自チーム総得点</div></div>
-    <div class="kpi-card"><div class="kpi-val">${totalOp}</div><div class="kpi-label">相手チーム総得点</div></div></div>
-    <div class="card"><div class="card-title">得点の内訳</div>
+    <!-- KPI -->
+    <div class="two-col">
+      <div class="kpi-card"><div class="kpi-val">${totalMy}</div><div class="kpi-label">自チーム総得点</div></div>
+      <div class="kpi-card"><div class="kpi-val">${totalOp}</div><div class="kpi-label">相手チーム総得点</div></div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;">
+      <div class="kpi-card"><div class="kpi-val ${colorPct(spkKillPct+'%')}" style="font-size:1.6rem;">${spkKillPct}%</div><div class="kpi-label">スパイク決定率</div></div>
+      <div class="kpi-card"><div class="kpi-val ${colorPct(srvEffPct+'%')}" style="font-size:1.6rem;">${srvEffPct}%</div><div class="kpi-label">サーブ効果率</div></div>
+      <div class="kpi-card"><div class="kpi-val ${colorPct(rcvOkPct+'%')}" style="font-size:1.6rem;">${rcvOkPct}%</div><div class="kpi-label">レシーブ成功率</div></div>
+    </div>
+
+    <!-- 得点内訳 -->
+    <div class="card"><div class="card-title">🏆 得点内訳</div>
       <div class="pie-wrap">
         <svg viewBox="0 0 100 100" width="110" height="110" style="flex-shrink:0;">${svgPaths}</svg>
-        <div class="pie-legend">${pieData.map(d=>`<div class="pie-legend-item"><div class="pie-dot" style="background:${d.c}"></div><span>${d.l}：<strong>${d.v}</strong>（${pct(d.v,total)}）</span></div>`).join('')}</div>
+        <div class="pie-legend">${pieData.map(d=>`<div class="pie-legend-item"><div class="pie-dot" style="background:${d.c}"></div><span>${d.l}：<strong>${d.v}</strong>（${pct(d.v,ptTotal)}）</span></div>`).join('')}</div>
       </div>
     </div>
-    <div class="card"><div class="card-title">セット別スコア</div><div class="table-wrap"><table class="stats-table">
-      <tr><th>セット</th><th>自</th><th>相手</th><th>スパイク決定</th><th>サービスPT</th><th>サーブミス</th></tr>${setRows}</table></div></div>
-    <div class="card"><div class="card-title">選手別スパイク決定数</div><div class="bar-chart">
-      ${playerBar.map(d=>`<div class="bar-row"><div class="bar-label">${d.name}</div><div class="bar-track"><div class="bar-fill" style="width:${Math.min(100,d.pct)}%;background:#e11d48;"></div></div><div class="bar-val">${d.kills}本</div></div>`).join('')}
-    </div></div>`;
+
+    <!-- スパイク詳細 -->
+    <div class="card"><div class="card-title">⚡ スパイク詳細（${spk.length}本）</div>
+      <div class="table-wrap"><table class="stats-table">
+        <tr><th>結果</th><th>本数</th><th>割合</th></tr>
+        <tr><td>✅ 決定</td><td><strong>${spkKill}</strong></td><td class="${colorPct(spkKillPct+'%')}">${spkKillPct}%</td></tr>
+        <tr><td>🖐 ワンタッチ</td><td>${spkOT}</td><td>${Math.round(spkOT/spkT*100)}%</td></tr>
+        <tr><td>👊 崩した</td><td>${spkDis}</td><td>${Math.round(spkDis/spkT*100)}%</td></tr>
+        <tr><td>➡ 普通</td><td>${spkNrm}</td><td>${Math.round(spkNrm/spkT*100)}%</td></tr>
+        <tr><td>❌ アウト</td><td>${spkOut}</td><td class="${spkOut/spkT>.2?'val-bad':''}">${Math.round(spkOut/spkT*100)}%</td></tr>
+        <tr><td>🕸 ネット</td><td>${spkNet}</td><td>${Math.round(spkNet/spkT*100)}%</td></tr>
+        <tr><td>🛡 被ブロック</td><td>${spkBlk}</td><td>${Math.round(spkBlk/spkT*100)}%</td></tr>
+      </table></div>
+      <div style="margin-top:10px;padding:12px;background:#fef2f2;border-radius:8px;border-left:4px solid #e11d48;">
+        <span style="font-size:.82rem;color:#991b1b;font-weight:700;">決定率 ${spkKillPct}%　/　ミス率（アウト+ネット+被ブロック）${spkErrPct}%</span>
+      </div>
+      <div class="bar-chart" style="margin-top:12px;">
+        ${playerBar.map(d=>`<div class="bar-row"><div class="bar-label">${d.name}</div><div class="bar-track"><div class="bar-fill" style="width:${Math.min(100,d.pct)}%;background:#e11d48;"></div></div><div class="bar-val">${d.kills}決 ${d.pct}% (${d.total}本)</div></div>`).join('')}
+      </div>
+    </div>
+
+    <!-- サーブ詳細 -->
+    <div class="card"><div class="card-title">🏐 サーブ詳細（${srv.length}本）</div>
+      <div class="table-wrap"><table class="stats-table">
+        <tr><th>結果</th><th>本数</th><th>割合</th></tr>
+        <tr><td>🎯 サービスポイント</td><td><strong>${srvAce}</strong></td><td class="${colorPct(srvAcePct+'%')}">${srvAcePct}%</td></tr>
+        <tr><td>👍 崩した</td><td>${srvEff}</td><td>${Math.round(srvEff/srvT*100)}%</td></tr>
+        <tr><td>➡ 普通</td><td>${srvNrm}</td><td>${Math.round(srvNrm/srvT*100)}%</td></tr>
+        <tr><td>❌ サーブミス</td><td>${srvErr}</td><td class="${srvErrPct>20?'val-bad':''}">${srvErrPct}%</td></tr>
+      </table></div>
+      <div style="margin-top:10px;padding:12px;background:#eff6ff;border-radius:8px;border-left:4px solid #0284c7;">
+        <span style="font-size:.82rem;color:#1d4ed8;font-weight:700;">サービスポイント率 ${srvAcePct}%　/　効果率（SP+崩し）${srvEffPct}%　/　ミス率 ${srvErrPct}%</span>
+      </div>
+    </div>
+
+    <!-- レシーブ詳細 -->
+    <div class="card"><div class="card-title">🟢 レシーブ詳細（${rcv.length}本）</div>
+      <div class="table-wrap"><table class="stats-table">
+        <tr><th>結果</th><th>本数</th><th>割合</th></tr>
+        <tr><td>🎯 セッター返球</td><td><strong>${rcvPerf}</strong></td><td class="${colorPct(Math.round(rcvPerf/rcvT*100)+'%')}">${Math.round(rcvPerf/rcvT*100)}%</td></tr>
+        <tr><td>✅ 成功</td><td>${rcvGood}</td><td>${Math.round(rcvGood/rcvT*100)}%</td></tr>
+        <tr><td>↪ 相手コート返球</td><td>${rcvOne}</td><td>${Math.round(rcvOne/rcvT*100)}%</td></tr>
+        <tr><td>❌ ミス</td><td>${rcvErr}</td><td class="${rcvErrPct>20?'val-bad':''}">${Math.round(rcvErr/rcvT*100)}%</td></tr>
+        <tr><td>⚖ ジャッジミス</td><td>${rcvJdg}</td><td>${Math.round(rcvJdg/rcvT*100)}%</td></tr>
+      </table></div>
+      <div style="margin-top:10px;padding:12px;background:#f0fdf4;border-radius:8px;border-left:4px solid #16a34a;">
+        <span style="font-size:.82rem;color:#15803d;font-weight:700;">成功率（返球+成功）${rcvOkPct}%　/　失敗率 ${rcvErrPct}%</span>
+      </div>
+      <div style="margin-top:12px;"><div style="font-size:.78rem;font-weight:700;color:#64748b;margin-bottom:8px;">種別内訳</div>
+      <div class="table-wrap"><table class="stats-table">
+        <tr><th>種類</th><th>回数</th><th>成功</th><th>ミス</th><th>成功率</th></tr>
+        ${rcvTypeRow('🏐 サーブカット',rcvSC)}
+        ${rcvTypeRow('⚡ スパイクカット',rcvSK)}
+        ${rcvTypeRow('🎾 チャンスボール',rcvCB)}
+        ${rcvTypeRow('🤫 フェイント処理',rcvFT)}
+      </table></div></div>
+    </div>
+
+    <!-- ブロック詳細 -->
+    <div class="card"><div class="card-title">🟣 ブロック詳細（${blk.length}回）</div>
+      <div class="table-wrap"><table class="stats-table">
+        <tr><th>結果</th><th>回数</th><th>割合</th></tr>
+        <tr><td>🏆 シャットアウト</td><td><strong>${blkSh}</strong></td><td class="${colorPct(blkShPct+'%')}">${blkShPct}%</td></tr>
+        <tr><td>👆 ワンタッチ</td><td>${blkTch}</td><td>${Math.round(blkTch/blkT*100)}%</td></tr>
+        <tr><td>❌ ブロックミス</td><td>${blkErr}</td><td>${Math.round(blkErr/blkT*100)}%</td></tr>
+      </table></div>
+    </div>
+
+    <!-- 相手ミス -->
+    ${om.length?`<div class="card"><div class="card-title">🙈 相手ミスによる得点（${om.length}点）</div>
+      <div class="bar-chart">
+        <div class="bar-row"><div class="bar-label">⚡ スパイクミス</div><div class="bar-track"><div class="bar-fill" style="width:${Math.min(100,Math.round(omSpk/om.length*100))}%;background:#b45309;"></div></div><div class="bar-val">${omSpk}回</div></div>
+        <div class="bar-row"><div class="bar-label">🏐 サーブミス</div><div class="bar-track"><div class="bar-fill" style="width:${Math.min(100,Math.round(omSrv/om.length*100))}%;background:#b45309;"></div></div><div class="bar-val">${omSrv}回</div></div>
+        <div class="bar-row"><div class="bar-label">❓ その他</div><div class="bar-track"><div class="bar-fill" style="width:${Math.min(100,Math.round(omOth/om.length*100))}%;background:#b45309;"></div></div><div class="bar-val">${omOth}回</div></div>
+      </div>
+    </div>`:''}
+
+    <!-- セット別 -->
+    <div class="card"><div class="card-title">📊 セット別詳細</div><div class="table-wrap"><table class="stats-table">
+      <tr><th>セット</th><th>自</th><th>相手</th><th>スパイク決定率</th><th>サービスPT</th><th>サーブミス</th><th>レシーブ成功率</th><th>失点</th></tr>
+      ${setRows}
+    </table></div></div>`;
 }
 
 // COURSE
@@ -1396,108 +1679,244 @@ function generateReport() {
   const totalOp=m.sets.reduce((a,s)=>a+s.opScore,0);
   const result=totalMy>totalOp?'勝利':'敗戦';
   const resultColor=totalMy>totalOp?'#16a34a':'#dc2626';
-
-  // --- SET SCORE TABLE ---
-  const setRows=m.sets.map(s=>`<tr>
-    <td>第${s.setNum}セット</td>
-    <td style="font-weight:800;color:#1a3a6b;">${s.myScore}</td>
-    <td>${s.opScore}</td>
-    <td>${s.myScore>s.opScore?'<span style="color:#16a34a;font-weight:700;">○</span>':'<span style="color:#dc2626;font-weight:700;">✕</span>'}</td>
-  </tr>`).join('');
-
-  // --- INDIVIDUAL STATS ---
-  const sortedPlayers=[...db.players].sort((a,b)=>a.number-b.number);
-  const playerRows=sortedPlayers.map(p=>{
-    const pa=all.filter(a=>a.playerId===p.id);
-    const spk=pa.filter(a=>a.type==='spike');
-    const kills=spk.filter(a=>a.result==='kill').length;
-    const spkErr=spk.filter(a=>a.result==='out'||a.result==='net').length;
-    const srv=pa.filter(a=>a.type==='serve');
-    const aces=srv.filter(a=>a.result==='ace').length;
-    const srvErr=srv.filter(a=>a.result==='serve_error').length;
-    const rcv=pa.filter(a=>a.type==='receive');
-    const rPfct=rcv.filter(a=>a.result==='perfect').length;
-    const rGood=rcv.filter(a=>a.result==='good').length;
-    const rErr=rcv.filter(a=>a.result==='receive_error').length;
-    const blk=pa.filter(a=>a.type==='block');
-    const bSht=blk.filter(a=>a.result==='shutout').length;
-    const killPct=spk.length?Math.round(kills/spk.length*100)+'%':'—';
-    const rcvPct=rcv.length?Math.round((rPfct+rGood)/rcv.length*100)+'%':'—';
-    return `<tr>
-      <td class="tl">${p.number}. ${p.name}</td>
-      <td>${kills}/${spk.length}</td><td>${killPct}</td>
-      <td>${aces}</td><td>${srvErr}</td>
-      <td>${rcvPct}</td><td>${rErr}</td>
-      <td>${bSht}</td>
-    </tr>`;
-  }).join('');
-
-  // --- TEAM STATS ---
-  const kills=all.filter(a=>a.type==='spike'&&a.result==='kill').length;
-  const aces=all.filter(a=>a.type==='serve'&&a.result==='ace').length;
-  const shuts=all.filter(a=>a.type==='block'&&a.result==='shutout').length;
-  const totalSpk=all.filter(a=>a.type==='spike').length;
-  const totalRcv=all.filter(a=>a.type==='receive').length;
-  const rcvOK=all.filter(a=>a.type==='receive'&&(a.result==='perfect'||a.result==='good')).length;
-  const srvErr=all.filter(a=>a.type==='serve'&&a.result==='serve_error').length;
-
-  // --- LOSS ---
-  const la=all.filter(a=>a.type==='loss');
-  const lcauses={serve_err:'サーブミス',spike_err:'スパイクミス',recv_err:'レシーブミス',conn_err:'連携ミス',collision:'お見合い',no_follow:'ブロックフォロー不足',free_ball:'フリーボールミス',other:'その他'};
-  const lossRows=Object.entries(lcauses).map(([k,l])=>{
-    const c=la.filter(a=>a.cause===k).length;
-    return c>0?`<tr><td class="tl">${l}</td><td style="font-weight:700;color:#dc2626;">${c}</td><td>${la.length?Math.round(c/la.length*100)+'%':'—'}</td></tr>`:'';
-  }).join('');
-
   const now=new Date();
   const nowStr=`${now.getFullYear()}/${now.getMonth()+1}/${now.getDate()}`;
 
+  // ── スパイク ──
+  const spk=all.filter(a=>a.type==='spike');
+  const spkKill=spk.filter(a=>a.result==='kill').length;
+  const spkOT  =spk.filter(a=>a.result==='one_touch').length;
+  const spkDis =spk.filter(a=>a.result==='disrupted').length;
+  const spkNrm =spk.filter(a=>a.result==='normal_spike').length;
+  const spkOut =spk.filter(a=>a.result==='out').length;
+  const spkNet =spk.filter(a=>a.result==='net').length;
+  const spkBlk =spk.filter(a=>a.result==='blocked').length;
+  const spkT   =spk.length||1;
+  const spkKillPct=Math.round(spkKill/spkT*100);
+  const spkErrPct =Math.round((spkOut+spkNet+spkBlk)/spkT*100);
+
+  // ── サーブ ──
+  const srv=all.filter(a=>a.type==='serve');
+  const srvAce=srv.filter(a=>a.result==='ace').length;
+  const srvErr=srv.filter(a=>a.result==='serve_error').length;
+  const srvEff=srv.filter(a=>a.result==='effective').length;
+  const srvNrm=srv.filter(a=>a.result==='normal').length;
+  const srvT  =srv.length||1;
+  const srvAcePct=Math.round(srvAce/srvT*100);
+  const srvErrPct=Math.round(srvErr/srvT*100);
+  const srvEffPct=Math.round((srvAce+srvEff)/srvT*100);
+
+  // ── レシーブ ──
+  const rcv=all.filter(a=>a.type==='receive');
+  const rcvPerf=rcv.filter(a=>a.result==='perfect').length;
+  const rcvGood=rcv.filter(a=>a.result==='good').length;
+  const rcvOne =rcv.filter(a=>a.result==='one_hand').length;
+  const rcvErr =rcv.filter(a=>a.result==='receive_error').length;
+  const rcvJdg =rcv.filter(a=>a.result==='judge_rcv').length;
+  const rcvT   =rcv.length||1;
+  const rcvOkPct =Math.round((rcvPerf+rcvGood)/rcvT*100);
+  const rcvErrPct=Math.round((rcvErr+rcvJdg)/rcvT*100);
+  // 種別
+  const rTypeRow=(lbl,type)=>{
+    const arr=rcv.filter(a=>a.recvType===type);
+    const ok=arr.filter(a=>a.result==='perfect'||a.result==='good').length;
+    const er=arr.filter(a=>a.result==='receive_error'||a.result==='judge_rcv').length;
+    const p=arr.length?Math.round(ok/arr.length*100):null;
+    return `<tr><td class="tl">${lbl}</td><td>${arr.length}</td><td>${ok}</td><td>${er}</td><td>${p!==null?p+'%':'—'}</td></tr>`;
+  };
+
+  // ── ブロック ──
+  const blk=all.filter(a=>a.type==='block');
+  const blkSh =blk.filter(a=>a.result==='shutout').length;
+  const blkTch=blk.filter(a=>a.result==='touch').length;
+  const blkErr=blk.filter(a=>a.result==='block_error').length;
+  const blkT  =blk.length||1;
+
+  // ── 失点 ──
+  const la=all.filter(a=>a.type==='loss');
+  const lcauses={serve_err:'サーブミス',spike_err:'スパイクミス',recv_err:'レシーブミス',conn_err:'連携ミス',collision:'お見合い',no_follow:'ブロックフォロー不足',free_ball:'フリーボールミス',judge_miss:'ジャッジミス',other:'その他'};
+  const lossData=Object.entries(lcauses).map(([k,l])=>({l,c:la.filter(a=>a.cause===k).length})).filter(d=>d.c>0).sort((a,b)=>b.c-a.c);
+
+  // ── 相手ミス ──
+  const om=all.filter(a=>a.type==='oppmiss');
+  const omSpk=om.filter(a=>a.cause==='opp_spike').length;
+  const omSrv=om.filter(a=>a.cause==='opp_serve').length;
+  const omOth=om.filter(a=>a.cause==='opp_other').length;
+
+  // ── セット別 ──
+  const setRows=m.sets.map(s=>{
+    const sa=s.actions;
+    const sk=sa.filter(a=>a.type==='spike'); const skK=sk.filter(a=>a.result==='kill').length; const skP=sk.length?Math.round(skK/sk.length*100):0;
+    const sv=sa.filter(a=>a.type==='serve'); const svA=sv.filter(a=>a.result==='ace').length; const svE=sv.filter(a=>a.result==='serve_error').length;
+    const rv=sa.filter(a=>a.type==='receive'); const rvOk=rv.filter(a=>a.result==='perfect'||a.result==='good').length; const rvP=rv.length?Math.round(rvOk/rv.length*100):0;
+    const ls=sa.filter(a=>a.type==='loss').length;
+    const win=s.myScore>s.opScore;
+    return `<tr>
+      <td>第${s.setNum}セット</td>
+      <td style="font-weight:800;color:#1a3a6b;">${s.myScore}</td>
+      <td>${s.opScore}</td>
+      <td>${win?'<span style="color:#16a34a;font-weight:700;">○</span>':'<span style="color:#dc2626;font-weight:700;">✕</span>'}</td>
+      <td>${skK}/${sk.length} <small>(${skP}%)</small></td>
+      <td>${svA} / <span style="color:#dc2626;">${svE}ミス</span></td>
+      <td>${rvP}%</td>
+      <td>${ls}</td>
+    </tr>`;
+  }).join('');
+
+  // ── 個人成績 ──
+  const sortedPlayers=[...db.players].sort((a,b)=>a.number-b.number);
+  const playerRows=sortedPlayers.map(p=>{
+    const pa=all.filter(a=>a.playerId===p.id);
+    const ps=pa.filter(a=>a.type==='spike'); const pk=ps.filter(a=>a.result==='kill').length;
+    const sv=pa.filter(a=>a.type==='serve'); const sa=sv.filter(a=>a.result==='ace').length; const se=sv.filter(a=>a.result==='serve_error').length;
+    const rv=pa.filter(a=>a.type==='receive'); const ro=rv.filter(a=>a.result==='perfect'||a.result==='good').length; const re=rv.filter(a=>a.result==='receive_error'||a.result==='judge_rcv').length;
+    const bk=pa.filter(a=>a.type==='block'); const bs=bk.filter(a=>a.result==='shutout').length;
+    return `<tr>
+      <td class="tl">${p.number}.${p.name}</td>
+      <td>${pk}/${ps.length}</td><td>${ps.length?Math.round(pk/ps.length*100)+'%':'—'}</td>
+      <td>${sa}</td><td>${se}</td>
+      <td>${rv.length?Math.round(ro/rv.length*100)+'%':'—'}</td><td>${re}</td>
+      <td>${bs}</td>
+    </tr>`;
+  }).join('');
+
+  // ── KPI着色ヘルパー ──
+  const rv=(v,good,bad)=>{
+    const col=v>=good?'#16a34a':v<=bad?'#dc2626':'#d97706';
+    return `<div style="font-size:1.4rem;font-weight:800;color:${col};line-height:1;">${v}%</div>`;
+  };
+
   document.getElementById('rptBody').innerHTML=`
+    <!-- ヘッダー -->
     <div class="rpt-h1">
       <div class="rtitle">🏐 vs ${m.opponent} 試合レポート</div>
-      <div class="rsub">${formatDate(m.date)} ／ 出力日：${nowStr}</div>
-      <div style="margin-top:8px;font-size:1.5rem;font-weight:800;color:${resultColor};">${result} ${totalMy}–${totalOp}</div>
+      <div class="rsub">${formatDate(m.date)} ／ 出力日：${nowStr} ／ ${m.sets.length}セット</div>
+      <div style="margin-top:8px;font-size:1.6rem;font-weight:800;color:${resultColor};">${result}　${totalMy} – ${totalOp}</div>
     </div>
 
+    <!-- チームKPI -->
     <div class="rpt-card">
-      <div class="rpt-card-title">チーム総合</div>
-      <div class="rpt-kpi-row">
-        <div class="rpt-kpi"><div class="rv">${kills}</div><div class="rl">スパイク決定</div></div>
-        <div class="rpt-kpi"><div class="rv">${aces}</div><div class="rl">サービスPT</div></div>
-        <div class="rpt-kpi"><div class="rv">${shuts}</div><div class="rl">ブロックPT</div></div>
-        <div class="rpt-kpi"><div class="rv">${la.length}</div><div class="rl">失点（記録）</div></div>
+      <div class="rpt-card-title">📊 チーム総合指標</div>
+      <div class="rpt-kpi-row" style="grid-template-columns:repeat(3,1fr);">
+        <div class="rpt-kpi">${rv(spkKillPct,40,25)}<div class="rl">スパイク決定率</div></div>
+        <div class="rpt-kpi">${rv(srvEffPct,50,30)}<div class="rl">サーブ効果率</div></div>
+        <div class="rpt-kpi">${rv(rcvOkPct,60,40)}<div class="rl">レシーブ成功率</div></div>
       </div>
-      <div class="rpt-kpi-row">
-        <div class="rpt-kpi"><div class="rv">${totalSpk?Math.round(kills/totalSpk*100)+'%':'—'}</div><div class="rl">スパイク決定率</div></div>
-        <div class="rpt-kpi"><div class="rv">${totalRcv?Math.round(rcvOK/totalRcv*100)+'%':'—'}</div><div class="rl">レシーブ成功率</div></div>
-        <div class="rpt-kpi"><div class="rv">${srvErr}</div><div class="rl">サーブミス</div></div>
-        <div class="rpt-kpi"><div class="rv">${m.sets.length}</div><div class="rl">セット数</div></div>
+      <div class="rpt-kpi-row" style="grid-template-columns:repeat(4,1fr);margin-top:6px;">
+        <div class="rpt-kpi"><div class="rv">${spkKill}</div><div class="rl">スパイク得点</div></div>
+        <div class="rpt-kpi"><div class="rv">${srvAce}</div><div class="rl">サービスPT</div></div>
+        <div class="rpt-kpi"><div class="rv">${blkSh}</div><div class="rl">ブロックPT</div></div>
+        <div class="rpt-kpi"><div class="rv" style="color:#dc2626;">${la.length}</div><div class="rl">失点(記録)</div></div>
       </div>
     </div>
 
+    <!-- セット別 -->
     <div class="rpt-card">
-      <div class="rpt-card-title">セット別スコア</div>
+      <div class="rpt-card-title">📋 セット別詳細</div>
       <div style="overflow-x:auto;"><table class="rpt-table">
-        <tr><th>セット</th><th>自チーム</th><th>相手</th><th>結果</th></tr>
+        <tr><th>セット</th><th>自</th><th>相手</th><th>勝敗</th><th>スパイク<br>決定率</th><th>サービスPT<br>/ミス</th><th>レシーブ<br>成功率</th><th>失点数</th></tr>
         ${setRows}
-        <tr style="background:#f1f5f9;font-weight:700;"><td>合計</td><td>${totalMy}</td><td>${totalOp}</td><td style="color:${resultColor};">${result}</td></tr>
+        <tr style="background:#f1f5f9;font-weight:700;"><td>合計</td><td>${totalMy}</td><td>${totalOp}</td><td style="color:${resultColor};">${result}</td><td>${spkKillPct}%</td><td>${srvAce}/${srvErr}</td><td>${rcvOkPct}%</td><td>${la.length}</td></tr>
       </table></div>
     </div>
 
+    <!-- スパイク詳細 -->
     <div class="rpt-card">
-      <div class="rpt-card-title">個人成績</div>
+      <div class="rpt-card-title">⚡ スパイク分析（${spk.length}本）</div>
       <div style="overflow-x:auto;"><table class="rpt-table">
-        <tr><th>選手</th><th>決定/打</th><th>決定率</th><th>ACE</th><th>サーブ<br>ミス</th><th>レシーブ<br>成功率</th><th>レシーブ<br>ミス</th><th>ブロック<br>PT</th></tr>
+        <tr><th>結果</th><th>本数</th><th>割合</th></tr>
+        <tr><td class="tl">✅ 決定</td><td style="font-weight:700;color:#16a34a;">${spkKill}</td><td>${spkKillPct}%</td></tr>
+        <tr><td class="tl">🖐 ワンタッチ</td><td>${spkOT}</td><td>${Math.round(spkOT/spkT*100)}%</td></tr>
+        <tr><td class="tl">👊 崩した</td><td>${spkDis}</td><td>${Math.round(spkDis/spkT*100)}%</td></tr>
+        <tr><td class="tl">➡ 普通</td><td>${spkNrm}</td><td>${Math.round(spkNrm/spkT*100)}%</td></tr>
+        <tr><td class="tl">❌ アウト</td><td>${spkOut}</td><td>${Math.round(spkOut/spkT*100)}%</td></tr>
+        <tr><td class="tl">🕸 ネット</td><td>${spkNet}</td><td>${Math.round(spkNet/spkT*100)}%</td></tr>
+        <tr><td class="tl">🛡 被ブロック</td><td>${spkBlk}</td><td>${Math.round(spkBlk/spkT*100)}%</td></tr>
+      </table></div>
+      <div style="margin-top:8px;padding:8px 10px;background:#fef2f2;border-radius:6px;font-size:.78rem;color:#991b1b;font-weight:700;">
+        決定率 ${spkKillPct}%　／　ミス率（アウト+ネット+被ブロック）${spkErrPct}%
+      </div>
+    </div>
+
+    <!-- サーブ詳細 -->
+    <div class="rpt-card">
+      <div class="rpt-card-title">🏐 サーブ分析（${srv.length}本）</div>
+      <div style="overflow-x:auto;"><table class="rpt-table">
+        <tr><th>結果</th><th>本数</th><th>割合</th></tr>
+        <tr><td class="tl">🎯 サービスポイント</td><td style="font-weight:700;color:#16a34a;">${srvAce}</td><td>${srvAcePct}%</td></tr>
+        <tr><td class="tl">👍 崩した</td><td>${srvEff}</td><td>${Math.round(srvEff/srvT*100)}%</td></tr>
+        <tr><td class="tl">➡ 普通</td><td>${srvNrm}</td><td>${Math.round(srvNrm/srvT*100)}%</td></tr>
+        <tr><td class="tl">❌ サーブミス</td><td style="color:#dc2626;">${srvErr}</td><td style="color:#dc2626;">${srvErrPct}%</td></tr>
+      </table></div>
+      <div style="margin-top:8px;padding:8px 10px;background:#eff6ff;border-radius:6px;font-size:.78rem;color:#1d4ed8;font-weight:700;">
+        SP率 ${srvAcePct}%　／　効果率（SP+崩し）${srvEffPct}%　／　ミス率 ${srvErrPct}%
+      </div>
+    </div>
+
+    <!-- レシーブ詳細 -->
+    <div class="rpt-card">
+      <div class="rpt-card-title">🟢 レシーブ分析（${rcv.length}本）</div>
+      <div style="overflow-x:auto;"><table class="rpt-table">
+        <tr><th>結果</th><th>本数</th><th>割合</th></tr>
+        <tr><td class="tl">🎯 セッター返球</td><td style="font-weight:700;color:#16a34a;">${rcvPerf}</td><td>${Math.round(rcvPerf/rcvT*100)}%</td></tr>
+        <tr><td class="tl">✅ 成功</td><td>${rcvGood}</td><td>${Math.round(rcvGood/rcvT*100)}%</td></tr>
+        <tr><td class="tl">↪ 相手コート返球</td><td>${rcvOne}</td><td>${Math.round(rcvOne/rcvT*100)}%</td></tr>
+        <tr><td class="tl">❌ ミス</td><td style="color:#dc2626;">${rcvErr}</td><td style="color:#dc2626;">${Math.round(rcvErr/rcvT*100)}%</td></tr>
+        <tr><td class="tl">⚖ ジャッジミス</td><td>${rcvJdg}</td><td>${Math.round(rcvJdg/rcvT*100)}%</td></tr>
+      </table></div>
+      <div style="margin-top:8px;padding:8px 10px;background:#f0fdf4;border-radius:6px;font-size:.78rem;color:#15803d;font-weight:700;">
+        成功率（返球+成功）${rcvOkPct}%　／　失敗率 ${rcvErrPct}%
+      </div>
+      <div style="margin-top:10px;overflow-x:auto;"><table class="rpt-table">
+        <tr><th>種類</th><th>回数</th><th>成功</th><th>ミス</th><th>成功率</th></tr>
+        ${rTypeRow('🏐 サーブカット','serve_cut')}
+        ${rTypeRow('⚡ スパイクカット','spike_cut')}
+        ${rTypeRow('🎾 チャンスボール','chance_ball')}
+        ${rTypeRow('🤫 フェイント処理','feint')}
+      </table></div>
+    </div>
+
+    <!-- ブロック詳細 -->
+    <div class="rpt-card">
+      <div class="rpt-card-title">🟣 ブロック分析（${blk.length}回）</div>
+      <div style="overflow-x:auto;"><table class="rpt-table">
+        <tr><th>結果</th><th>回数</th><th>割合</th></tr>
+        <tr><td class="tl">🏆 シャットアウト</td><td style="font-weight:700;color:#16a34a;">${blkSh}</td><td>${Math.round(blkSh/blkT*100)}%</td></tr>
+        <tr><td class="tl">👆 ワンタッチ</td><td>${blkTch}</td><td>${Math.round(blkTch/blkT*100)}%</td></tr>
+        <tr><td class="tl">❌ ブロックミス</td><td>${blkErr}</td><td>${Math.round(blkErr/blkT*100)}%</td></tr>
+      </table></div>
+    </div>
+
+    <!-- 失点分析 -->
+    <div class="rpt-card">
+      <div class="rpt-card-title">❌ 失点分析（${la.length}点）</div>
+      ${lossData.length?`<div style="overflow-x:auto;"><table class="rpt-table">
+        <tr><th>原因</th><th>回数</th><th>割合</th></tr>
+        ${lossData.map(d=>`<tr><td class="tl">${d.l}</td><td style="font-weight:700;color:#dc2626;">${d.c}</td><td>${la.length?Math.round(d.c/la.length*100)+'%':'—'}</td></tr>`).join('')}
+      </table></div>
+      <div style="margin-top:8px;padding:8px 10px;background:#fef2f2;border-radius:6px;font-size:.78rem;color:#991b1b;font-weight:700;">
+        💡 最多原因：${lossData[0].l}（${lossData[0].c}点 / ${Math.round(lossData[0].c/la.length*100)}%）
+      </div>`:'<p style="color:#94a3b8;font-size:.82rem;">失点記録がありません</p>'}
+    </div>
+
+    <!-- 相手ミス -->
+    ${om.length?`<div class="rpt-card">
+      <div class="rpt-card-title">🙈 相手ミスによる得点（${om.length}点）</div>
+      <div style="overflow-x:auto;"><table class="rpt-table">
+        <tr><th>種類</th><th>回数</th><th>割合</th></tr>
+        <tr><td class="tl">⚡ スパイクミス</td><td>${omSpk}</td><td>${Math.round(omSpk/om.length*100)}%</td></tr>
+        <tr><td class="tl">🏐 サーブミス</td><td>${omSrv}</td><td>${Math.round(omSrv/om.length*100)}%</td></tr>
+        <tr><td class="tl">❓ その他</td><td>${omOth}</td><td>${Math.round(omOth/om.length*100)}%</td></tr>
+      </table></div>
+    </div>`:''}
+
+    <!-- 個人成績 -->
+    <div class="rpt-card">
+      <div class="rpt-card-title">👤 個人成績</div>
+      <div style="overflow-x:auto;"><table class="rpt-table">
+        <tr><th>選手</th><th>決定/打</th><th>決定率</th><th>ACE</th><th>サーブミス</th><th>レシーブ成功率</th><th>レシーブミス</th><th>ブロックPT</th></tr>
         ${playerRows||'<tr><td colspan="8" style="color:#94a3b8;">データなし</td></tr>'}
       </table></div>
-    </div>
-
-    <div class="rpt-card">
-      <div class="rpt-card-title">失点分析</div>
-      ${la.length?`<div style="overflow-x:auto;"><table class="rpt-table">
-        <tr><th>原因</th><th>回数</th><th>割合</th></tr>
-        ${lossRows||'<tr><td colspan="3">データなし</td></tr>'}
-      </table></div>`:'<p style="color:#94a3b8;font-size:.82rem;">失点記録がありません</p>'}
     </div>`;
 
   document.getElementById('rptOverlay').style.display='block';
